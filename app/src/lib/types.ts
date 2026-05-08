@@ -50,6 +50,8 @@ export interface Wunsch {
   ziel_dienste: number;
   ziel_anmeldungen: number;
   besonderheiten: string;
+  zeit_von: string;
+  zeit_bis: string;
 }
 
 export interface Zuweisung {

@@ -2,9 +2,12 @@
 
 import { AuthGuard } from "@/components/auth-guard";
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useAuth } from "@/lib/auth";
 import { NavBar } from "@/components/ui/nav-bar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { type VerfuegbarFuer } from "@/lib/types";
+import { getWuensche, saveWuenscheBulk, getTeam } from "@/lib/api";
+import type { Hebamme } from "@/lib/types";
 import {
   ChevronLeft,
   ChevronRight,
@@ -119,58 +122,6 @@ type TeamCoverage = {
 
 type TeamShiftCoverage = Partial<Record<VerfuegbarFuer, TeamCoverage[]>>;
 
-const DEMO_NAMEN = ["Lena", "Tatjana", "Fabienne", "Lisa", "Jessy", "Johanna", "Pati", "Anna", "Lilly", "Serena"];
-
-// Generate consistent demo data – coverage matches the dots
-function generateDemoData(daysInMonth: number): {
-  status: Record<number, TeamDayStatus>;
-  coverage: Record<number, TeamShiftCoverage>;
-} {
-  const status: Record<number, TeamDayStatus> = {};
-  const coverage: Record<number, TeamShiftCoverage> = {};
-
-  for (let d = 1; d <= daysInMonth; d++) {
-    const seed = d * 7 + 3;
-    const verfuegbar = seed % 3 === 0 ? (seed % 4) + 1 : 0;
-    const freiWunsch = seed % 4 === 0 ? (seed % 2) + 1 : 0;
-    const nichtVerfuegbar = seed % 5 === 0 ? (seed % 3) + 1 : 0;
-
-    if (verfuegbar === 0 && freiWunsch === 0 && nichtVerfuegbar === 0) continue;
-
-    status[d] = { verfuegbar, freiWunsch, nichtVerfuegbar };
-
-    // If people are verfuegbar, generate matching coverage entries
-    if (verfuegbar > 0) {
-      const dayCoverage: TeamShiftCoverage = {};
-      const nameIdx = seed % DEMO_NAMEN.length;
-
-      // Vary which shifts are covered based on the day
-      if (seed % 2 === 0) {
-        dayCoverage.tagdienst = verfuegbar >= 2
-          ? [
-              { von: "07:00", bis: "13:00", name: DEMO_NAMEN[nameIdx] },
-              { von: "13:00", bis: "19:00", name: DEMO_NAMEN[(nameIdx + 1) % DEMO_NAMEN.length] },
-            ]
-          : [{ von: "07:00", bis: "13:00", name: DEMO_NAMEN[nameIdx] }];
-      }
-      if (seed % 3 === 0) {
-        dayCoverage.nachtdienst = [
-          { von: "19:00", bis: "01:00", name: DEMO_NAMEN[(nameIdx + 2) % DEMO_NAMEN.length] },
-        ];
-      }
-      if (seed % 5 === 0) {
-        dayCoverage.bd_tag = [
-          { von: "07:00", bis: "12:00", name: DEMO_NAMEN[(nameIdx + 3) % DEMO_NAMEN.length] },
-        ];
-      }
-
-      if (Object.keys(dayCoverage).length > 0) {
-        coverage[d] = dayCoverage;
-      }
-    }
-  }
-  return { status, coverage };
-}
 
 // Calculate smart default time based on existing coverage
 function getSmartDefault(typ: VerfuegbarFuer, coverage?: TeamCoverage[]): ZeitFenster {
@@ -189,18 +140,122 @@ function getSmartDefault(typ: VerfuegbarFuer, coverage?: TeamCoverage[]): ZeitFe
 }
 
 export default function WunschplanPage() {
-  const [year, setYear] = useState(2026);
-  const [month, setMonth] = useState(5);
+  const { user } = useAuth();
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1 > 11 ? 0 : now.getMonth() + 1); // next month default
   const [dayStates, setDayStates] = useState<Record<number, DayStatus>>({});
   const [dayDetails, setDayDetails] = useState<Record<number, DayDetail>>({});
   const [sheetDay, setSheetDay] = useState<number | null>(null);
-  // Track per-dienst time selections in the sheet (before confirming)
   const [sheetZeiten, setSheetZeiten] = useState<Record<string, ZeitFenster>>({});
   const [zielDienste, setZielDienste] = useState(8);
   const [zielAnmeldungen, setZielAnmeldungen] = useState(1);
   const [showHelp, setShowHelp] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<Hebamme[]>([]);
 
   const sheetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const monatKey = `${year}-${String(month + 1).padStart(2, "0")}`;
+
+  // Load team members
+  useEffect(() => {
+    getTeam().then(setTeamMembers).catch(() => {});
+  }, []);
+
+  // Load existing wishes when month changes
+  useEffect(() => {
+    if (!user) return;
+    setSaved(false);
+    getWuensche(monatKey, user.id).then((wuensche) => {
+      const states: Record<number, DayStatus> = {};
+      const details: Record<number, DayDetail> = {};
+      let dienste = 8;
+      let anmeldungen = 1;
+
+      for (const w of wuensche) {
+        const d = new Date(w.datum).getDate();
+        if (w.ist_urlaub) {
+          states[d] = "nicht_verfuegbar";
+        } else if (w.frei_wunsch === "wichtig") {
+          states[d] = "nicht_verfuegbar";
+        } else if (w.frei_wunsch === "waere_schoen") {
+          states[d] = "frei_wunsch";
+        } else if (w.verfuegbar_fuer && w.verfuegbar_fuer.length > 0) {
+          states[d] = "verfuegbar";
+          details[d] = {
+            dienste: w.verfuegbar_fuer.map((typ) => ({
+              typ: typ as VerfuegbarFuer,
+              zeit: {
+                von: w.zeit_von || DEFAULT_ZEITEN[typ]?.von || "07:00",
+                bis: w.zeit_bis || DEFAULT_ZEITEN[typ]?.bis || "19:00",
+              },
+            })),
+          };
+        }
+        if (w.ziel_dienste) dienste = w.ziel_dienste;
+        if (w.ziel_anmeldungen) anmeldungen = w.ziel_anmeldungen;
+      }
+
+      setDayStates(states);
+      setDayDetails(details);
+      setZielDienste(dienste);
+      setZielAnmeldungen(anmeldungen);
+    }).catch(() => {});
+  }, [monatKey, user]);
+
+  // Save handler
+  const handleSave = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      const wuensche: Parameters<typeof saveWuenscheBulk>[2] = [];
+      const daysInM = getDaysInMonth(year, month);
+
+      for (let d = 1; d <= daysInM; d++) {
+        const status = dayStates[d];
+        if (!status || status === "leer") continue;
+
+        const datum = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")} 00:00:00.000Z`;
+        const detail = dayDetails[d];
+
+        if (status === "verfuegbar") {
+          const dienste = detail?.dienste || [];
+          wuensche.push({
+            datum,
+            verfuegbar_fuer: dienste.length > 0 ? dienste.map((e) => e.typ) : ["alle"],
+            frei_wunsch: null,
+            ist_urlaub: false,
+            zeit_von: dienste[0]?.zeit?.von || "",
+            zeit_bis: dienste[0]?.zeit?.bis || "",
+          });
+        } else if (status === "frei_wunsch") {
+          wuensche.push({
+            datum,
+            verfuegbar_fuer: [],
+            frei_wunsch: "waere_schoen",
+            ist_urlaub: false,
+          });
+        } else if (status === "nicht_verfuegbar") {
+          wuensche.push({
+            datum,
+            verfuegbar_fuer: [],
+            frei_wunsch: "wichtig",
+            ist_urlaub: true,
+          });
+        }
+      }
+
+      await saveWuenscheBulk(user.id, monatKey, wuensche, zielDienste, zielAnmeldungen);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      console.error("Save failed:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const prevMonth = () => {
     cancelSheetTimer();
@@ -218,10 +273,53 @@ export default function WunschplanPage() {
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDayOfMonth(year, month);
 
-  // Team data from other members (demo data for now)
-  const [demoData] = useState(() => generateDemoData(daysInMonth));
-  const teamStatus = demoData.status;
-  const teamCoverage = demoData.coverage;
+  // Team data from other members
+  const [teamStatus, setTeamStatus] = useState<Record<number, TeamDayStatus>>({});
+  const [teamCoverage, setTeamCoverage] = useState<Record<number, TeamShiftCoverage>>({});
+
+  useEffect(() => {
+    if (!user) return;
+    // Load all wishes for this month (from all team members)
+    getWuensche(monatKey).then((allWuensche) => {
+      const status: Record<number, TeamDayStatus> = {};
+      const coverage: Record<number, TeamShiftCoverage> = {};
+
+      for (const w of allWuensche) {
+        if (w.hebamme === user.id) continue; // skip own wishes
+        const d = new Date(w.datum).getDate();
+        if (!status[d]) status[d] = { verfuegbar: 0, freiWunsch: 0, nichtVerfuegbar: 0 };
+
+        if (w.ist_urlaub || w.frei_wunsch === "wichtig") {
+          status[d].nichtVerfuegbar++;
+        } else if (w.frei_wunsch === "waere_schoen") {
+          status[d].freiWunsch++;
+        } else if (w.verfuegbar_fuer && w.verfuegbar_fuer.length > 0) {
+          status[d].verfuegbar++;
+          // Build coverage
+          const member = teamMembers.find((m) => m.id === w.hebamme);
+          if (member) {
+            if (!coverage[d]) coverage[d] = {};
+            for (const typ of w.verfuegbar_fuer) {
+              const key = typ as VerfuegbarFuer;
+              if (!coverage[d][key]) coverage[d][key] = [];
+              coverage[d][key]!.push({
+                von: w.zeit_von || DEFAULT_ZEITEN[typ]?.von || "07:00",
+                bis: w.zeit_bis || DEFAULT_ZEITEN[typ]?.bis || "19:00",
+                name: member.vorname,
+              });
+            }
+          }
+        }
+      }
+
+      setTeamStatus(status);
+      setTeamCoverage(coverage);
+    }).catch(() => {
+      // Fallback: empty
+      setTeamStatus({});
+      setTeamCoverage({});
+    });
+  }, [monatKey, user, teamMembers]);
 
   const cancelSheetTimer = useCallback(() => {
     if (sheetTimerRef.current) { clearTimeout(sheetTimerRef.current); sheetTimerRef.current = null; }
@@ -494,9 +592,23 @@ export default function WunschplanPage() {
           </div>
         </GlassCard>
 
-        <button className="w-full flex items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-primary to-accent py-5 text-lg font-bold text-white transition-glass hover:opacity-90 glow active:scale-[0.98]">
-          <Save className="h-5 w-5" />
-          Wunschplan abschicken
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className={cn(
+            "w-full flex items-center justify-center gap-3 rounded-2xl py-5 text-lg font-bold text-white transition-all active:scale-[0.98]",
+            saved
+              ? "bg-emerald-500/20 ring-1 ring-emerald-400/30"
+              : "bg-gradient-to-r from-primary to-accent hover:opacity-90 glow"
+          )}
+        >
+          {saving ? (
+            <><div className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Wird gespeichert...</>
+          ) : saved ? (
+            <><Check className="h-5 w-5 text-emerald-400" /> Gespeichert!</>
+          ) : (
+            <><Save className="h-5 w-5" /> Wunschplan abschicken</>
+          )}
         </button>
         <p className="text-center text-xs text-white/30 mt-3 mb-8">Du kannst deinen Plan jederzeit andern, solange die Frist nicht abgelaufen ist.</p>
 
