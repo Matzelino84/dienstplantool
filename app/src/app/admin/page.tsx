@@ -27,6 +27,7 @@ import {
   UserX,
   Heart,
   TrendingUp,
+  Printer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -316,6 +317,36 @@ export default function AdminPage() {
                   >
                     <CheckCircle2 className="h-5 w-5" />
                     Fur alle freigeben
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!result) return;
+                      const WOCHE = ["So","Mo","Di","Mi","Do","Fr","Sa"];
+                      let csv = "Tag;Wochentag;Tagdienst;Tagdienst Zeit;BD Tag;BD Tag Zeit;BD Nacht;BD Nacht Zeit;Nachtdienst;Nachtdienst Zeit;Anmeldung;Anmeldung Zeit\n";
+                      const days: Record<number, Record<string, {name:string;von:string;bis:string}>> = {};
+                      for (const z of result.zuweisungen) {
+                        if (!days[z.tag]) days[z.tag] = {};
+                        days[z.tag][z.typ] = {name: z.name, von: z.von, bis: z.bis};
+                      }
+                      const dim = new Date(year, month + 1, 0).getDate();
+                      for (let d = 1; d <= dim; d++) {
+                        const dow = WOCHE[new Date(year, month, d).getDay()];
+                        const r = days[d] || {};
+                        const g = (t: string) => r[t] ? `${r[t].name};${r[t].von}-${r[t].bis}` : ";";
+                        csv += `${d};${dow};${g("tagdienst")};${g("bd_tag")};${g("bd_nacht")};${g("nachtdienst")};${g("anmeldung")}\n`;
+                      }
+                      const blob = new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8"});
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `Dienstplan_${MONATE[month]}_${year}.csv`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl glass py-4 text-base font-semibold text-white/70 transition-glass glass-hover active:scale-[0.98]"
+                  >
+                    <Printer className="h-5 w-5" />
+                    Als CSV herunterladen
                   </button>
                 </div>
               </>
