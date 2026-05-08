@@ -1,9 +1,13 @@
+"use client";
+
+import { AuthGuard } from "@/components/auth-guard";
 import { NavBar } from "@/components/ui/nav-bar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Database, Globe, Key, Bell } from "lucide-react";
 
 export default function EinstellungenPage() {
   return (
+    <AuthGuard>
     <div className="flex min-h-screen flex-col">
       <NavBar />
       <main className="flex-1 mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
@@ -85,5 +89,6 @@ export default function EinstellungenPage() {
         </div>
       </main>
     </div>
+    </AuthGuard>
   );
 }

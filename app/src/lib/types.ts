@@ -11,7 +11,6 @@ export type VerfuegbarFuer =
   | "alle"
   | "tagdienst"
   | "nachtdienst"
-  | "bereitschaft"
   | "bd_tag"
   | "bd_nacht"
   | "anmeldung";
@@ -99,8 +98,7 @@ export const VERFUEGBAR_LABELS: Record<VerfuegbarFuer, string> = {
   alle: "Alle Dienste",
   tagdienst: "Tagdienst",
   nachtdienst: "Nachtdienst",
-  bereitschaft: "Bereitschaft",
-  bd_tag: "Nur Tag-BD",
-  bd_nacht: "Nur Nacht-BD",
+  bd_tag: "BD Tag",
+  bd_nacht: "BD Nacht",
   anmeldung: "Anmeldung",
 };

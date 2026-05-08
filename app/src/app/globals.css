@@ -169,3 +169,13 @@
 ::-webkit-scrollbar-thumb:hover {
   background: oklch(1 0 0 / 25%);
 }
+
+/* Hide scrollbar for swipe containers */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Star Wars reel scroll */
+.reel-perspective {
+  perspective: 800px;
+  perspective-origin: center 40%;
+}

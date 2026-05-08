@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from "@/lib/auth";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -10,7 +11,14 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Dienstplantool - Hebammen Schichtplanung",
   description:
-    "Intelligente Dienstplanung für Hebammen-Teams. Wunschplan eingeben, automatisch optimieren, fair verteilen.",
+    "Intelligente Dienstplanung fur Hebammen-Teams. Wunschplan eingeben, automatisch optimieren, fair verteilen.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({
@@ -20,7 +28,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="de" className={`${inter.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-mesh">{children}</body>
+      <body className="min-h-full flex flex-col bg-mesh">
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

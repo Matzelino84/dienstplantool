@@ -1,94 +1,131 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 import {
   Calendar,
   ClipboardList,
-  LayoutDashboard,
-  LogOut,
-  Settings,
+  DoorOpen,
+  Shield,
   Users,
 } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useRef, useState, useEffect, useCallback } from "react";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/wunschplan", label: "Wunschplan", icon: ClipboardList },
-  { href: "/dienstplan", label: "Dienstplan", icon: Calendar },
-  { href: "/team", label: "Team", icon: Users },
-  { href: "/einstellungen", label: "Einstellungen", icon: Settings },
+  { href: "/wunschplan", label: "Wunschplan", icon: ClipboardList, adminOnly: false, colorFrom: "rgba(139,92,246,0.45)", colorTo: "rgba(217,70,239,0.45)" },
+  { href: "/dienstplan", label: "Dienstplan", icon: Calendar, adminOnly: false, colorFrom: "rgba(6,182,212,0.45)", colorTo: "rgba(59,130,246,0.45)" },
+  { href: "/team", label: "Team", icon: Users, adminOnly: true, colorFrom: "rgba(16,185,129,0.45)", colorTo: "rgba(20,184,166,0.45)" },
+  { href: "/admin", label: "Admin", icon: Shield, adminOnly: true, colorFrom: "rgba(245,158,11,0.45)", colorTo: "rgba(249,115,22,0.45)" },
 ];
 
 export function NavBar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, isAdmin, logout } = useAuth();
+
+  const visibleItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+  const activeIndex = Math.max(0, visibleItems.findIndex(
+    (item) => pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
+  ));
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null);
+  const hasMeasured = useRef(false);
+
+  const handleLogout = () => {
+    logout();
+    router.replace("/login");
+  };
+
+  const measure = useCallback(() => {
+    const tab = tabRefs.current[activeIndex];
+    const container = containerRef.current;
+    if (tab && container) {
+      const tabRect = tab.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      setIndicator({
+        left: tabRect.left - containerRect.left,
+        width: tabRect.width,
+      });
+      hasMeasured.current = true;
+    }
+  }, [activeIndex]);
+
+  useEffect(() => {
+    measure();
+  }, [measure]);
+
+  useEffect(() => {
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [measure]);
+
+  const activeItem = visibleItems[activeIndex];
+  const bgGradient = activeItem
+    ? `linear-gradient(to right, ${activeItem.colorFrom}, ${activeItem.colorTo})`
+    : "transparent";
 
   return (
     <nav className="glass-strong sticky top-0 z-50">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent">
-              <Calendar className="h-5 w-5 text-white" />
-            </div>
-            <span className="text-lg font-semibold text-gradient hidden sm:block">
-              Dienstplan
-            </span>
-          </Link>
+      <div className="mx-auto max-w-2xl px-4">
+        <div className="flex items-center justify-between h-14">
+          {/* User name left */}
+          <div className="flex items-center gap-1.5 min-w-0 ml-[5px]">
+            {user && (
+              <span className="text-base font-semibold text-white truncate">
+                {user.vorname}
+              </span>
+            )}
+            {isAdmin && <Shield className="h-4 w-4 text-amber-400 shrink-0" />}
+          </div>
 
-          {/* Navigation Links */}
-          <div className="hidden md:flex items-center gap-1">
-            {NAV_ITEMS.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/" && pathname.startsWith(item.href));
+          {/* Nav tabs center */}
+          <div ref={containerRef} className="relative flex items-center rounded-2xl bg-white/[0.04] p-1">
+            {/* Sliding indicator with inline gradient for smooth color transition */}
+            {indicator && (
+              <div
+                className="absolute rounded-xl"
+                style={{
+                  left: `${indicator.left}px`,
+                  width: `${indicator.width}px`,
+                  top: "4px",
+                  bottom: "4px",
+                  background: bgGradient,
+                  transition: hasMeasured.current
+                    ? "left 700ms cubic-bezier(0.25, 0.8, 0.25, 1), width 700ms cubic-bezier(0.25, 0.8, 0.25, 1), background 700ms ease"
+                    : "none",
+                }}
+              />
+            )}
+            {visibleItems.map((item, i) => {
+              const isActive = i === activeIndex;
               return (
-                <Link
+                <button
                   key={item.href}
-                  href={item.href}
+                  ref={(el) => { tabRefs.current[i] = el; }}
+                  onClick={() => router.push(item.href)}
                   className={cn(
-                    "flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-glass",
-                    isActive
-                      ? "glass-strong text-white glow"
-                      : "text-white/60 hover:text-white hover:bg-white/5"
+                    "relative z-10 flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition-colors duration-700 ease-out",
+                    isActive ? "text-white" : "text-white/30"
                   )}
                 >
                   <item.icon className="h-4 w-4" />
                   {item.label}
-                </Link>
+                </button>
               );
             })}
           </div>
 
-          {/* User / Logout */}
-          <button className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 transition-glass">
-            <LogOut className="h-4 w-4" />
-            <span className="hidden sm:block">Abmelden</span>
+          {/* Logout right */}
+          <button
+            onClick={handleLogout}
+            className="flex items-center justify-center rounded-xl p-2.5 mr-[10px] text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-glass active:scale-95"
+          >
+            <DoorOpen className="h-5 w-5" />
           </button>
         </div>
-      </div>
-
-      {/* Mobile Navigation */}
-      <div className="flex md:hidden items-center justify-around py-2 border-t border-white/10">
-        {NAV_ITEMS.slice(0, 4).map((item) => {
-          const isActive =
-            pathname === item.href ||
-            (item.href !== "/" && pathname.startsWith(item.href));
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-xs transition-glass",
-                isActive ? "text-white" : "text-white/40"
-              )}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </Link>
-          );
-        })}
       </div>
     </nav>
   );

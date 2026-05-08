@@ -1,5 +1,6 @@
 "use client";
 
+import { AuthGuard } from "@/components/auth-guard";
 import { NavBar } from "@/components/ui/nav-bar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { UserPlus, Mail, Shield, User } from "lucide-react";
@@ -24,6 +25,7 @@ const DEMO_TEAM = [
 
 export default function TeamPage() {
   return (
+    <AuthGuard>
     <div className="flex min-h-screen flex-col">
       <NavBar />
       <main className="flex-1 mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -100,5 +102,6 @@ export default function TeamPage() {
         </div>
       </main>
     </div>
+    </AuthGuard>
   );
 }
