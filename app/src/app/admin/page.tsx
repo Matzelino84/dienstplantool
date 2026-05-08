@@ -303,9 +303,21 @@ export default function AdminPage() {
                   </div>
                 </GlassCard>
 
-                <a href="/dienstplan" className="w-full flex items-center justify-center gap-2 rounded-2xl glass py-4 text-base font-semibold text-white transition-glass glass-hover">
-                  Plan ansehen
-                </a>
+                <div className="space-y-3">
+                  <a href="/dienstplan" className="w-full flex items-center justify-center gap-2 rounded-2xl glass py-4 text-base font-semibold text-white transition-glass glass-hover">
+                    Plan ansehen
+                  </a>
+                  <button
+                    onClick={async () => {
+                      await saveDienstplan({ monat: monatKey, status: "freigegeben", freigegeben_am: new Date().toISOString() });
+                      alert("Dienstplan freigegeben! Hebammen konnen ihn jetzt sehen.");
+                    }}
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500/30 to-emerald-600/30 ring-1 ring-emerald-400/30 py-4 text-base font-bold text-emerald-300 transition-glass hover:from-emerald-500/40 hover:to-emerald-600/40 active:scale-[0.98]"
+                  >
+                    <CheckCircle2 className="h-5 w-5" />
+                    Fur alle freigeben
+                  </button>
+                </div>
               </>
             )}
           </>
