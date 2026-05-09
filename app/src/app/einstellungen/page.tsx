@@ -7,12 +7,9 @@ import { useAuth } from "@/lib/auth";
 import { useEffect, useState } from "react";
 import {
   updateHebammeSettings,
-  getFeiertage,
-  createFeiertag,
-  deleteFeiertag,
   changeMyPin,
 } from "@/lib/api";
-import type { HebammeSettings, Feiertag } from "@/lib/types";
+import type { HebammeSettings } from "@/lib/types";
 import {
   Settings as SettingsIcon,
   CalendarHeart,
@@ -24,7 +21,6 @@ import {
   Heart,
   Plus,
   Trash2,
-  Calendar,
   Check,
   KeyRound,
 } from "lucide-react";
@@ -41,29 +37,20 @@ const WOCHENTAGE = [
 ];
 
 export default function EinstellungenPage() {
-  const { user, isAdmin, refreshUser } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [settings, setSettings] = useState<HebammeSettings>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const [feiertage, setFeiertage] = useState<Feiertag[]>([]);
   const [oldPin, setOldPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [newPinConfirm, setNewPinConfirm] = useState("");
   const [pinSaving, setPinSaving] = useState(false);
   const [pinMsg, setPinMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-  const [showAddFeiertag, setShowAddFeiertag] = useState(false);
-  const [newFeiertagDatum, setNewFeiertagDatum] = useState("");
-  const [newFeiertagName, setNewFeiertagName] = useState("");
-  const [newFeiertagTyp, setNewFeiertagTyp] = useState<"feiertag" | "ferien">("feiertag");
 
   useEffect(() => {
     if (user?.settings) setSettings(user.settings);
   }, [user]);
-
-  useEffect(() => {
-    getFeiertage(new Date().getFullYear()).then(setFeiertage).catch(() => {});
-  }, []);
 
   const toggleWeekday = (key: "fix_blocked_weekdays" | "fix_frei_weekdays", idx: number) => {
     const arr = settings[key] || [];
@@ -136,29 +123,6 @@ export default function EinstellungenPage() {
     } finally {
       setPinSaving(false);
     }
-  };
-
-  const handleAddFeiertag = async () => {
-    if (!newFeiertagDatum) return;
-    try {
-      await createFeiertag({
-        datum: `${newFeiertagDatum} 00:00:00.000Z`,
-        name: newFeiertagName,
-        typ: newFeiertagTyp,
-      });
-      setNewFeiertagDatum("");
-      setNewFeiertagName("");
-      setShowAddFeiertag(false);
-      const list = await getFeiertage(new Date().getFullYear());
-      setFeiertage(list);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleDeleteFeiertag = async (id: string) => {
-    await deleteFeiertag(id);
-    setFeiertage(feiertage.filter((f) => f.id !== id));
   };
 
   return (
@@ -398,48 +362,6 @@ export default function EinstellungenPage() {
             )}
           </button>
 
-          {isAdmin && (
-            <GlassCard className="mb-8">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-amber-400" />
-                  <h2 className="text-base font-semibold text-white">Feiertage & Ferien {new Date().getFullYear()}</h2>
-                </div>
-                <button
-                  onClick={() => setShowAddFeiertag(true)}
-                  className="flex items-center gap-1 rounded-lg bg-primary/20 hover:bg-primary/30 px-3 py-1.5 text-xs font-semibold text-white"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Neu
-                </button>
-              </div>
-              <p className="text-xs text-white/40 mb-3">
-                Feiertage werden im Solver berücksichtigt: keine Anmeldungen, Slot wird als Feiertag markiert.
-              </p>
-              {feiertage.length === 0 ? (
-                <p className="text-sm text-white/30 text-center py-4">Noch keine Einträge</p>
-              ) : (
-                <div className="space-y-1">
-                  {feiertage.map((f) => (
-                    <div key={f.id} className="flex items-center gap-3 rounded-xl bg-white/[0.03] px-3 py-2">
-                      <div className={cn(
-                        "h-2 w-2 rounded-full shrink-0",
-                        f.typ === "feiertag" ? "bg-amber-400" : "bg-emerald-400"
-                      )} />
-                      <span className="text-xs text-white/40 font-mono w-24 shrink-0">{f.datum.slice(0, 10)}</span>
-                      <span className="text-sm text-white/80 flex-1 truncate">{f.name || (f.typ === "feiertag" ? "Feiertag" : "Ferien")}</span>
-                      <button
-                        onClick={() => handleDeleteFeiertag(f.id)}
-                        className="rounded-lg p-1.5 text-white/30 hover:text-red-400 hover:bg-red-500/10"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </GlassCard>
-          )}
-
           <p className="text-center text-xs text-white/25">
             Server: <code className="bg-white/5 rounded px-1.5 py-0.5">
               {process.env.NEXT_PUBLIC_POCKETBASE_URL || (typeof window !== "undefined" ? `${window.location.origin}/dienstplan-pb` : "lokal")}
@@ -447,61 +369,6 @@ export default function EinstellungenPage() {
           </p>
         </main>
 
-        {showAddFeiertag && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowAddFeiertag(false)}>
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-            <div className="relative w-full max-w-lg animate-in slide-in-from-bottom duration-300" onClick={(e) => e.stopPropagation()}>
-              <div className="glass-strong rounded-t-3xl px-6 pt-4 pb-8 border-t border-white/15">
-                <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-white/20" />
-                <h3 className="text-lg font-bold text-white mb-4">Neuer Feiertag / Ferientag</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm text-white/50 block mb-1.5">Datum</label>
-                    <input
-                      type="date"
-                      value={newFeiertagDatum}
-                      onChange={(e) => setNewFeiertagDatum(e.target.value)}
-                      className="w-full rounded-xl bg-white/10 px-4 py-3 text-base text-white focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm text-white/50 block mb-1.5">Name</label>
-                    <input
-                      type="text"
-                      value={newFeiertagName}
-                      onChange={(e) => setNewFeiertagName(e.target.value)}
-                      placeholder="z.B. Pfingstmontag"
-                      className="w-full rounded-xl bg-white/10 px-4 py-3 text-base text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm text-white/50 block mb-1.5">Typ</label>
-                    <div className="flex gap-2">
-                      {(["feiertag", "ferien"] as const).map((t) => (
-                        <button
-                          key={t}
-                          onClick={() => setNewFeiertagTyp(t)}
-                          className={cn(
-                            "flex-1 rounded-xl py-3 text-sm font-medium transition-all",
-                            newFeiertagTyp === t ? "bg-primary/20 text-white ring-1 ring-primary/30" : "bg-white/5 text-white/40"
-                          )}
-                        >
-                          {t === "feiertag" ? "Feiertag" : "Ferien"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleAddFeiertag}
-                    className="w-full rounded-2xl bg-gradient-to-r from-primary to-accent py-3 text-base font-bold text-white"
-                  >
-                    Speichern
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </AuthGuard>
   );
