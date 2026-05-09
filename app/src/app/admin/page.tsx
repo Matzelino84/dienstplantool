@@ -23,6 +23,7 @@ import {
   getDienstplan,
   getZuweisungen,
   getFeiertage,
+  deletePlan,
 } from "@/lib/api";
 import {
   SCHICHT_LABELS,
@@ -89,6 +90,9 @@ export default function AdminPage() {
   const [result, setResult] = useState<SolverResult | null>(null);
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
   const [showGewichtung, setShowGewichtung] = useState(false);
+  const [activeTab, setActiveTab] = useState<"uebersicht" | "konflikte" | "bearbeiten">("uebersicht");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingPlan, setDeletingPlan] = useState(false);
   const [selectedKonflikt, setSelectedKonflikt] = useState<SolverKonflikt | null>(null);
   const [drillMember, setDrillMember] = useState<Hebamme | null>(null);
   const [zuweisungIdMap, setZuweisungIdMap] = useState<Record<string, string>>({});
@@ -499,6 +503,25 @@ export default function AdminPage() {
     }
   };
 
+  const handleDeletePlan = async () => {
+    setDeletingPlan(true);
+    try {
+      await deletePlan(monatKey);
+      setResult(null);
+      setPlanStatus(null);
+      setZuweisungIdMap({});
+      setSlotIdMap({});
+      setShowDeleteConfirm(false);
+      setActiveTab("uebersicht");
+    } catch (err) {
+      console.error("deletePlan failed", err);
+      setEditPersistError("Plan konnte nicht gelöscht werden");
+      setTimeout(() => setEditPersistError(null), 4000);
+    } finally {
+      setDeletingPlan(false);
+    }
+  };
+
   const erzwungenPro = result
     ? result.zuweisungen
         .filter((z) => z.erzwungen)
@@ -739,13 +762,13 @@ export default function AdminPage() {
                     <><CheckCircle2 className="h-5 w-5" /> Speichern &amp; für alle freigeben</>
                   )}
                 </button>
-                <div className="grid grid-cols-3 gap-2 mb-6">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
                   <button
                     onClick={() => handlePersistAndRelease(false)}
                     disabled={savingPlan}
                     className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 ring-1 ring-white/10 py-3 text-xs font-semibold text-white/70 transition-all hover:bg-white/10 active:scale-95"
                   >
-                    Entwurf speichern
+                    Entwurf
                   </button>
                   <a
                     href="/dienstplan"
@@ -759,9 +782,44 @@ export default function AdminPage() {
                   >
                     <Printer className="h-3.5 w-3.5" /> PDF
                   </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    disabled={savingPlan}
+                    className="flex items-center justify-center gap-1.5 rounded-xl bg-red-500/10 ring-1 ring-red-400/25 py-3 text-xs font-semibold text-red-300/90 transition-all hover:bg-red-500/20 active:scale-95"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Löschen
+                  </button>
                 </div>
 
-                {result.statistik.erzwungen > 0 && (
+                {/* Tabs */}
+                <div className="flex gap-1 mb-4 rounded-2xl bg-white/[0.04] ring-1 ring-white/5 p-1">
+                  {([
+                    { key: "uebersicht" as const, label: "Übersicht" },
+                    { key: "konflikte" as const, label: "Konflikte", count: result.statistik.erzwungen },
+                    { key: "bearbeiten" as const, label: "Bearbeiten" },
+                  ]).map((t) => (
+                    <button
+                      key={t.key}
+                      onClick={() => setActiveTab(t.key)}
+                      className={cn(
+                        "flex-1 rounded-xl py-2 text-xs font-semibold transition-all flex items-center justify-center gap-1.5",
+                        activeTab === t.key
+                          ? "bg-white/10 text-white shadow-sm"
+                          : "text-white/50 hover:text-white/80"
+                      )}
+                    >
+                      {t.label}
+                      {"count" in t && t.count != null && t.count > 0 && (
+                        <span className={cn(
+                          "rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums",
+                          activeTab === t.key ? "bg-amber-500/30 text-amber-200" : "bg-amber-500/20 text-amber-300/80"
+                        )}>{t.count}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {activeTab === "konflikte" && result.statistik.erzwungen > 0 && (
                   <GlassCard className="mb-6">
                     <h2 className="text-base font-semibold text-white mb-3 flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 text-amber-400" />
@@ -799,6 +857,19 @@ export default function AdminPage() {
                   </GlassCard>
                 )}
 
+                {activeTab === "konflikte" && result.statistik.erzwungen === 0 && (
+                  <GlassCard className="mb-6">
+                    <div className="flex flex-col items-center justify-center py-10 text-center">
+                      <div className="h-12 w-12 rounded-2xl bg-emerald-500/15 flex items-center justify-center mb-3">
+                        <CheckCircle2 className="h-6 w-6 text-emerald-400" />
+                      </div>
+                      <p className="text-sm font-semibold text-white">Keine Konflikte</p>
+                      <p className="text-xs text-white/40 mt-1">Alle Wünsche konnten erfüllt werden.</p>
+                    </div>
+                  </GlassCard>
+                )}
+
+                {activeTab === "uebersicht" && (
                 <GlassCard className="mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <h2 className="text-base font-semibold text-white">Verteilung</h2>
@@ -876,7 +947,9 @@ export default function AdminPage() {
                     </div>
                   )}
                 </GlassCard>
+                )}
 
+                {activeTab === "bearbeiten" && (
                 <GlassCard className="mb-6">
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="text-base font-semibold text-white">Plan bearbeiten</h2>
@@ -932,8 +1005,8 @@ export default function AdminPage() {
                           className={cn(
                             "rounded-xl p-3 transition-all",
                             isWE ? "bg-white/[0.02]" : "bg-white/[0.04]",
-                            holiday?.kind === "feiertag" && "bg-amber-400/[0.08] ring-1 ring-amber-300/25",
-                            holiday?.kind === "ferien" && "bg-emerald-400/[0.05] ring-1 ring-emerald-300/15",
+                            holiday?.kind === "feiertag" && "bg-white/[0.07] ring-1 ring-white/15",
+                            holiday?.kind === "ferien" && "bg-slate-400/[0.07] ring-1 ring-slate-300/15",
                             isToday && "ring-1 ring-primary/40"
                           )}
                         >
@@ -945,7 +1018,7 @@ export default function AdminPage() {
                             {holiday && (
                               <span className={cn(
                                 "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
-                                holiday.kind === "feiertag" ? "bg-amber-400/20 text-amber-200" : "bg-emerald-400/20 text-emerald-200"
+                                holiday.kind === "feiertag" ? "bg-white/20 text-white" : "bg-slate-400/20 text-slate-200"
                               )}>
                                 {holiday.name}
                               </span>
@@ -997,6 +1070,7 @@ export default function AdminPage() {
                     })()}
                   </div>
                 </GlassCard>
+                )}
               </>
             )}
           </>
@@ -1124,6 +1198,59 @@ export default function AdminPage() {
           month={month}
           onClose={() => setDrillMember(null)}
         />
+      )}
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4" onClick={() => !deletingPlan && setShowDeleteConfirm(false)}>
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          <div className="relative w-full max-w-sm animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="glass-strong rounded-3xl p-6 ring-1 ring-red-400/20">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-500/20 ring-1 ring-red-400/30">
+                  <AlertTriangle className="h-5 w-5 text-red-300" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Plan wirklich löschen?</h3>
+                  <p className="text-xs text-white/50">{MONATE[month]} {year}</p>
+                </div>
+              </div>
+              <ul className="text-xs text-white/55 mb-3 space-y-1.5 rounded-xl bg-white/[0.04] p-3">
+                <li className="flex items-start gap-2"><span className="text-red-400/70 mt-0.5">•</span> Alle Zuweisungen werden entfernt</li>
+                <li className="flex items-start gap-2"><span className="text-red-400/70 mt-0.5">•</span> Alle Schicht-Slots werden entfernt</li>
+                <li className="flex items-start gap-2"><span className="text-red-400/70 mt-0.5">•</span> Plan-Status zurück auf „kein Plan"</li>
+              </ul>
+              <p className="text-[11px] text-emerald-300/70 mb-5 flex items-center gap-1.5">
+                <CheckCircle2 className="h-3 w-3" /> Wunschpläne der Hebammen bleiben erhalten
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={deletingPlan}
+                  className="flex-1 rounded-xl bg-white/10 ring-1 ring-white/15 py-3 text-sm font-semibold text-white/80 hover:bg-white/15 transition-glass active:scale-95 disabled:opacity-50"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={handleDeletePlan}
+                  disabled={deletingPlan}
+                  className="flex-1 rounded-xl bg-red-500/30 ring-1 ring-red-400/40 py-3 text-sm font-bold text-red-200 hover:bg-red-500/40 transition-glass active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {deletingPlan ? (
+                    <>
+                      <div className="h-4 w-4 rounded-full border-2 border-red-300/40 border-t-red-300 animate-spin" />
+                      Löscht...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4" />
+                      Ja, löschen
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
     </AuthGuard>

@@ -594,8 +594,8 @@ export default function WunschplanPage() {
                     "aspect-square rounded-2xl font-semibold transition-all duration-200 relative flex flex-col items-center justify-center select-none active:scale-95",
                     weekend && status === "leer" ? "text-white/25" : status === "leer" ? "text-white/60 hover:bg-white/5" : "text-white",
                     // Holiday/ferien tint: only visible when no explicit user status
-                    status === "leer" && isHoliday && "bg-amber-400/15 ring-1 ring-amber-300/35",
-                    status === "leer" && isFerien && "bg-emerald-400/12 ring-1 ring-emerald-300/25",
+                    status === "leer" && isHoliday && "bg-white/12 ring-1 ring-white/25",
+                    status === "leer" && isFerien && "bg-slate-400/12 ring-1 ring-slate-300/20",
                     // Status-color overrides
                     config.bg, config.ring
                   )}
@@ -649,11 +649,11 @@ export default function WunschplanPage() {
             </div>
             <div className="flex items-center justify-center gap-3 text-[11px] text-white/30">
               <div className="flex items-center gap-1.5">
-                <div className="h-3 w-3 rounded bg-emerald-400/12 ring-1 ring-emerald-300/25" />
+                <div className="h-3 w-3 rounded bg-slate-400/12 ring-1 ring-slate-300/20" />
                 <span>Schulferien</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className="h-3 w-3 rounded bg-amber-400/15 ring-1 ring-amber-300/35" />
+                <div className="h-3 w-3 rounded bg-white/12 ring-1 ring-white/25" />
                 <span>Feiertag</span>
               </div>
             </div>

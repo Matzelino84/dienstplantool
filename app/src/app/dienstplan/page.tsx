@@ -310,7 +310,7 @@ export default function DienstplanPage() {
                       const hasShift = shifts && shifts.length > 0;
                       const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                       const holiday = holidayMap[dateKey];
-                      const holidayBg = holiday?.kind === "feiertag" ? "bg-amber-400/15" : holiday?.kind === "ferien" ? "bg-emerald-400/12" : "";
+                      const holidayBg = holiday?.kind === "feiertag" ? "bg-white/12" : holiday?.kind === "ferien" ? "bg-slate-400/12" : "";
                       return (
                         <div key={day} title={holiday?.name} className={cn(
                           "aspect-square rounded-xl flex flex-col items-center justify-between py-1.5 px-0.5",
@@ -384,8 +384,8 @@ export default function DienstplanPage() {
                   <GlassCard className={cn(
                     "p-4",
                     isWeekend && "opacity-80",
-                    holiday?.kind === "feiertag" && "ring-1 ring-amber-300/35 bg-amber-400/[0.07]",
-                    holiday?.kind === "ferien" && "ring-1 ring-emerald-300/25 bg-emerald-400/[0.05]"
+                    holiday?.kind === "feiertag" && "ring-1 ring-white/25 bg-white/[0.07]",
+                    holiday?.kind === "ferien" && "ring-1 ring-slate-300/20 bg-slate-400/[0.07]"
                   )}>
                     <div className="flex items-center gap-3 mb-3">
                       <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl text-base font-bold", isWeekend ? "bg-white/5 text-white/30" : "bg-white/8 text-white/70")}>{day}</div>
@@ -393,7 +393,7 @@ export default function DienstplanPage() {
                       {holiday && (
                         <span className={cn(
                           "ml-auto rounded-md px-2 py-0.5 text-[10px] font-medium",
-                          holiday.kind === "feiertag" ? "bg-amber-400/15 text-amber-200" : "bg-emerald-400/15 text-emerald-200"
+                          holiday.kind === "feiertag" ? "bg-white/15 text-white/90" : "bg-slate-400/15 text-slate-200"
                         )}>{holiday.name}</span>
                       )}
                     </div>

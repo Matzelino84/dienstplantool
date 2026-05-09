@@ -301,6 +301,19 @@ export async function getDienstplan(monat: string): Promise<Dienstplan | null> {
   }
 }
 
+export async function deletePlan(monat: string): Promise<void> {
+  const zList = await pb.collection("zuweisungen").getFullList({ filter: `monat="${monat}"` });
+  for (const z of zList) await pb.collection("zuweisungen").delete(z.id);
+  const sList = await pb.collection("schicht_slots").getFullList({ filter: `monat="${monat}"` });
+  for (const s of sList) await pb.collection("schicht_slots").delete(s.id);
+  try {
+    const plan = await pb.collection("dienstplaene").getFirstListItem(`monat="${monat}"`);
+    await pb.collection("dienstplaene").delete(plan.id);
+  } catch {
+    // no plan record yet
+  }
+}
+
 export async function saveDienstplan(data: {
   monat: string;
   status: string;
