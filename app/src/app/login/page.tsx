@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { Calendar, AlertCircle } from "lucide-react";
+import { Calendar, AlertCircle, ChevronDown, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import pb from "@/lib/pocketbase";
 import type { Hebamme } from "@/lib/types";
@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [team, setTeam] = useState<Pick<Hebamme, "id" | "vorname" | "farbe">[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const pinRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Redirect if already logged in
@@ -36,11 +37,12 @@ export default function LoginPage() {
 
   const handleNameSelect = (name: string) => {
     setSelectedName(name);
+    setPickerOpen(false);
     setStep("pin");
     setPin(["", "", "", ""]);
     setError("");
     // Focus first pin input after render
-    setTimeout(() => pinRefs.current[0]?.focus(), 100);
+    setTimeout(() => pinRefs.current[0]?.focus(), 250);
   };
 
   const handlePinInput = (index: number, value: string) => {
@@ -100,28 +102,25 @@ export default function LoginPage() {
         {step === "name" ? (
           /* ===== NAME SELECTION ===== */
           <div>
-            <p className="text-center text-base text-white/60 mb-6">
+            <p className="text-center text-lg text-white/70 mb-6">
               Wer bist du?
             </p>
-            <div className="grid grid-cols-2 gap-3">
-              {team.map((member) => (
-                <button
-                  key={member.id}
-                  onClick={() => handleNameSelect(member.vorname)}
-                  className="glass glass-hover transition-glass rounded-2xl px-4 py-4 flex items-center gap-3 active:scale-95"
-                >
-                  <div
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white font-bold text-lg"
-                    style={{ backgroundColor: (member.farbe || "#666") + "30" }}
-                  >
-                    {member.vorname[0]}
-                  </div>
-                  <span className="text-sm font-medium text-white/80 truncate">
-                    {member.vorname}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="w-full glass glass-hover transition-glass rounded-2xl px-5 py-5 flex items-center gap-4 active:scale-[0.99] ring-1 ring-white/10"
+            >
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10">
+                <Calendar className="h-5 w-5 text-white/50" />
+              </div>
+              <div className="flex-1 text-left min-w-0">
+                <p className="text-xs text-white/40 mb-0.5">Person</p>
+                <p className="text-lg font-semibold text-white/90">Auswählen…</p>
+              </div>
+              <ChevronDown className="h-5 w-5 text-white/40 shrink-0" />
+            </button>
+            <p className="text-center text-xs text-white/30 mt-4">
+              Tippe oben, um deinen Namen aus der Liste zu wählen
+            </p>
           </div>
         ) : (
           /* ===== PIN ENTRY ===== */
@@ -183,6 +182,65 @@ export default function LoginPage() {
           </div>
         )}
       </div>
+
+      {/* Person-Picker Bottom-Sheet */}
+      {pickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          onClick={() => setPickerOpen(false)}
+        >
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-md animate-in slide-in-from-bottom duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="glass-strong rounded-t-3xl px-5 pt-4 pb-6 border-t border-white/15 max-h-[85vh] overflow-y-auto">
+              <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-white/25" />
+              <div className="flex items-center justify-between mb-5 px-1">
+                <h3 className="text-xl font-bold text-white">Wer bist du?</h3>
+                <button
+                  onClick={() => setPickerOpen(false)}
+                  className="rounded-xl p-2 text-white/50 hover:text-white hover:bg-white/10 active:scale-95"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+              {team.length === 0 ? (
+                <p className="text-center text-sm text-white/40 py-10">Lade Team…</p>
+              ) : (
+                <div className="space-y-2">
+                  {team.map((member) => {
+                    const isCurrent = member.vorname === selectedName;
+                    return (
+                      <button
+                        key={member.id}
+                        onClick={() => handleNameSelect(member.vorname)}
+                        className={cn(
+                          "w-full flex items-center gap-4 rounded-2xl px-4 py-4 transition-glass active:scale-[0.99] ring-1",
+                          isCurrent
+                            ? "bg-primary/20 ring-primary/40"
+                            : "bg-white/[0.04] ring-white/10 hover:bg-white/10"
+                        )}
+                      >
+                        <div
+                          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-white font-bold text-2xl"
+                          style={{ backgroundColor: (member.farbe || "#666") + "40" }}
+                        >
+                          {member.vorname[0]}
+                        </div>
+                        <span className="flex-1 text-left text-xl font-semibold text-white truncate">
+                          {member.vorname}
+                        </span>
+                        {isCurrent && <Check className="h-5 w-5 text-primary shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
