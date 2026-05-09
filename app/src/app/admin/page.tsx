@@ -32,6 +32,7 @@ import {
   type Wunsch,
   type Feiertag,
 } from "@/lib/types";
+import { getBayernHolidays, type HolidayMap } from "@/lib/holidays";
 import {
   Shield,
   ClipboardList,
@@ -82,6 +83,7 @@ export default function AdminPage() {
   const [team, setTeam] = useState<Hebamme[]>([]);
   const [allWuensche, setAllWuensche] = useState<Wunsch[]>([]);
   const [feiertage, setFeiertage] = useState<Feiertag[]>([]);
+  const [bayernHolidays, setBayernHolidays] = useState<HolidayMap>({});
   const [planStatus, setPlanStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -109,11 +111,13 @@ export default function AdminPage() {
       getFeiertage(year),
       getDienstplan(monatKey),
       getZuweisungen(monatKey),
+      getBayernHolidays(year),
     ])
-      .then(([t, w, f, p, zList]) => {
+      .then(([t, w, f, p, zList, bay]) => {
         setTeam(t);
         setAllWuensche(w);
         setFeiertage(f);
+        setBayernHolidays(bay);
         setPlanStatus(p?.status ?? null);
 
         if (zList.length > 0) {
@@ -196,8 +200,13 @@ export default function AdminPage() {
         set.add(f.datum.slice(0, 10));
       }
     }
+    for (const [date, info] of Object.entries(bayernHolidays)) {
+      if (info.kind === "feiertag" && date.startsWith(monatKey)) {
+        set.add(date);
+      }
+    }
     return set;
-  }, [feiertage, monatKey]);
+  }, [feiertage, bayernHolidays, monatKey]);
 
   const memberStatus = team.map((member) => {
     const wishes = allWuensche.filter((w) => w.hebamme === member.id);

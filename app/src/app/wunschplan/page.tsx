@@ -7,6 +7,7 @@ import { NavBar } from "@/components/ui/nav-bar";
 import { GlassCard } from "@/components/ui/glass-card";
 import type { SchichtTyp, Feiertag } from "@/lib/types";
 import { getWuensche, saveWuenscheBulk, getTeam, getFeiertage, type WunschBulkEintrag } from "@/lib/api";
+import { getBayernHolidays, type HolidayMap } from "@/lib/holidays";
 import type { Hebamme } from "@/lib/types";
 import {
   ChevronLeft,
@@ -171,7 +172,7 @@ export default function WunschplanPage() {
   const [saved, setSaved] = useState(false);
   const [teamMembers, setTeamMembers] = useState<Hebamme[]>([]);
   const [feiertage, setFeiertage] = useState<Feiertag[]>([]);
-  const [bayernFerien, setBayernFerien] = useState<{ name: string; start: string; end: string }[]>([]);
+  const [bayernHolidays, setBayernHolidays] = useState<HolidayMap>({});
 
   const sheetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -183,34 +184,18 @@ export default function WunschplanPage() {
   }, []);
   useEffect(() => {
     getFeiertage(year).then(setFeiertage).catch(() => {});
-    fetch(`https://ferien-api.de/api/v1/holidays/BY/${year}`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data: { name: string; start: string; end: string }[]) => setBayernFerien(Array.isArray(data) ? data : []))
-      .catch(() => setBayernFerien([]));
+    getBayernHolidays(year).then(setBayernHolidays).catch(() => setBayernHolidays({}));
   }, [year]);
 
-  const bayernFerienByDay = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const f of bayernFerien) {
-      const cur = new Date(f.start.slice(0, 10) + "T00:00:00");
-      const end = new Date(f.end.slice(0, 10) + "T00:00:00");
-      while (cur <= end) {
-        const key = cur.toISOString().slice(0, 10);
-        if (!map[key]) map[key] = f.name;
-        cur.setDate(cur.getDate() + 1);
-      }
-    }
-    return map;
-  }, [bayernFerien]);
-
-  const feiertageMap = useMemo(() => {
-    const map: Record<string, Feiertag> = {};
+  // Combined map: user-defined feiertage take precedence, else Bayern data
+  const holidayByDay = useMemo(() => {
+    const map: Record<string, { name: string; kind: "feiertag" | "ferien" }> = { ...bayernHolidays };
     for (const f of feiertage) {
       const key = f.datum.slice(0, 10);
-      map[key] = f;
+      map[key] = { name: f.name || (f.typ === "feiertag" ? "Feiertag" : "Ferien"), kind: f.typ };
     }
     return map;
-  }, [feiertage]);
+  }, [bayernHolidays, feiertage]);
 
   // Pre-fill with user's fixed weekdays + specific dates (settings)
   const applyFixSettings = useCallback(
@@ -508,7 +493,7 @@ export default function WunschplanPage() {
   const isWeekend = (day: number) => { const d = dayOfWeekForDate(day); return d === 0 || d === 6; };
   const isAnmeldungTag = (day: number) => {
     const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    if (feiertageMap[dateKey]?.typ === "feiertag") return false;
+    if (holidayByDay[dateKey]?.kind === "feiertag") return false;
     const d = dayOfWeekForDate(day);
     return d === 2 || d === 5;
   };
@@ -596,22 +581,23 @@ export default function WunschplanPage() {
               const weekend = isWeekend(day);
               const info = getDayInfo(day);
               const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-              const isHoliday = feiertageMap[dateKey]?.typ === "feiertag";
-              const isFerien = feiertageMap[dateKey]?.typ === "ferien";
-              const bayernFerienName = bayernFerienByDay[dateKey];
+              const holiday = holidayByDay[dateKey];
+              const isHoliday = holiday?.kind === "feiertag";
+              const isFerien = holiday?.kind === "ferien";
 
               return (
                 <button
                   key={day}
                   onClick={() => tapDay(day)}
-                  title={bayernFerienName ? `Bayern: ${bayernFerienName.charAt(0).toUpperCase() + bayernFerienName.slice(1)}` : undefined}
+                  title={holiday ? holiday.name : undefined}
                   className={cn(
                     "aspect-square rounded-2xl font-semibold transition-all duration-200 relative flex flex-col items-center justify-center select-none active:scale-95",
                     weekend && status === "leer" ? "text-white/25" : status === "leer" ? "text-white/60 hover:bg-white/5" : "text-white",
-                    config.bg, config.ring,
-                    isHoliday && status === "leer" && "ring-1 ring-amber-400/30",
-                    isFerien && status === "leer" && "ring-1 ring-emerald-400/20",
-                    bayernFerienName && status === "leer" && "bg-emerald-400/[0.06]"
+                    // Holiday/ferien tint: only visible when no explicit user status
+                    status === "leer" && isHoliday && "bg-amber-400/15 ring-1 ring-amber-300/35",
+                    status === "leer" && isFerien && "bg-emerald-400/12 ring-1 ring-emerald-300/25",
+                    // Status-color overrides
+                    config.bg, config.ring
                   )}
                 >
                   <span className="text-[15px] leading-none">{day}</span>
@@ -642,14 +628,6 @@ export default function WunschplanPage() {
                       {teamStatus[day].nichtVerfuegbar > 0 && (<div className="h-[6px] w-[6px] rounded-full bg-red-400" />)}
                     </div>
                   )}
-                  {(isHoliday || isFerien) && (
-                    <div className="absolute top-[3px] left-[3px]">
-                      <span className="text-[7px] leading-none text-amber-400/80">{isHoliday ? "F" : "•"}</span>
-                    </div>
-                  )}
-                  {bayernFerienName && (
-                    <div className="absolute bottom-[3px] left-[8px] right-[8px] h-[3px] rounded-full bg-emerald-400/55" />
-                  )}
                 </button>
               );
             })}
@@ -669,9 +647,15 @@ export default function WunschplanPage() {
               <div className="h-[6px] w-[6px] rounded-full bg-amber-400 ml-1" /><span>schön frei</span>
               <div className="h-[6px] w-[6px] rounded-full bg-red-400 ml-1" /><span>kann nicht</span>
             </div>
-            <div className="flex items-center justify-center gap-1.5 text-[11px] text-white/30">
-              <div className="h-[3px] w-3 rounded-full bg-emerald-400/55" />
-              <span>Bayrische Ferien</span>
+            <div className="flex items-center justify-center gap-3 text-[11px] text-white/30">
+              <div className="flex items-center gap-1.5">
+                <div className="h-3 w-3 rounded bg-emerald-400/12 ring-1 ring-emerald-300/25" />
+                <span>Schulferien</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="h-3 w-3 rounded bg-amber-400/15 ring-1 ring-amber-300/35" />
+                <span>Feiertag</span>
+              </div>
             </div>
           </div>
         </GlassCard>

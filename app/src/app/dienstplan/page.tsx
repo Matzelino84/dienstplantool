@@ -6,7 +6,8 @@ import { useAuth } from "@/lib/auth";
 import { NavBar } from "@/components/ui/nav-bar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { SCHICHT_LABELS, type SchichtTyp, type Hebamme } from "@/lib/types";
-import { getTeam, getZuweisungen, getDienstplan } from "@/lib/api";
+import { getTeam, getZuweisungen, getDienstplan, getFeiertage } from "@/lib/api";
+import { getBayernHolidays, type HolidayMap } from "@/lib/holidays";
 import {
   Eye,
   List,
@@ -63,7 +64,24 @@ export default function DienstplanPage() {
   const [loading, setLoading] = useState(true);
   const [planStatus, setPlanStatus] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"mein" | "alle">("mein");
+  const [holidayMap, setHolidayMap] = useState<HolidayMap>({});
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    getBayernHolidays(year)
+      .then(async (bayern) => {
+        const merged: HolidayMap = { ...bayern };
+        try {
+          const own = await getFeiertage(year);
+          for (const f of own) {
+            const key = f.datum.slice(0, 10);
+            merged[key] = { name: f.name || (f.typ === "feiertag" ? "Feiertag" : "Ferien"), kind: f.typ };
+          }
+        } catch {}
+        setHolidayMap(merged);
+      })
+      .catch(() => setHolidayMap({}));
+  }, [year]);
 
   const today = now;
   const todayDay = today.getFullYear() === year && today.getMonth() === month ? today.getDate() : 1;
@@ -290,11 +308,14 @@ export default function DienstplanPage() {
                       const isPast = day < todayDay;
                       const shifts = myShiftsMap[day];
                       const hasShift = shifts && shifts.length > 0;
+                      const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                      const holiday = holidayMap[dateKey];
+                      const holidayBg = holiday?.kind === "feiertag" ? "bg-amber-400/15" : holiday?.kind === "ferien" ? "bg-emerald-400/12" : "";
                       return (
-                        <div key={day} className={cn(
+                        <div key={day} title={holiday?.name} className={cn(
                           "aspect-square rounded-xl flex flex-col items-center justify-between py-1.5 px-0.5",
                           isToday && "ring-1 ring-primary/50",
-                          hasShift ? "bg-primary/10" : isWeekend ? "bg-white/[0.02]" : "",
+                          hasShift ? "bg-primary/10" : isWeekend ? "bg-white/[0.02]" : holidayBg,
                           isPast && !hasShift && "opacity-30"
                         )}>
                           <span className={cn("text-xs font-bold leading-none", hasShift ? "text-white" : isWeekend ? "text-white/20" : "text-white/40", isToday && !hasShift ? "text-primary" : "")}>{day}</span>
@@ -356,12 +377,25 @@ export default function DienstplanPage() {
                   if (last && last.baseTyp === base) last.items.push(shift);
                   else grouped.push({ baseTyp: base, items: [shift] });
                 }
+                const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                const holiday = holidayMap[dateKey];
                 return (
                   <div key={day} id={`day-${day}`} className={cn("snap-start", i === 0 ? "pt-4" : "pt-3")}>
-                  <GlassCard className={cn("p-4", isWeekend && "opacity-80")}>
+                  <GlassCard className={cn(
+                    "p-4",
+                    isWeekend && "opacity-80",
+                    holiday?.kind === "feiertag" && "ring-1 ring-amber-300/35 bg-amber-400/[0.07]",
+                    holiday?.kind === "ferien" && "ring-1 ring-emerald-300/25 bg-emerald-400/[0.05]"
+                  )}>
                     <div className="flex items-center gap-3 mb-3">
                       <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl text-base font-bold", isWeekend ? "bg-white/5 text-white/30" : "bg-white/8 text-white/70")}>{day}</div>
                       <p className={cn("text-sm font-semibold", isWeekend ? "text-white/40" : "text-white/80")}>{WOCHENTAGE_SHORT[dow]}</p>
+                      {holiday && (
+                        <span className={cn(
+                          "ml-auto rounded-md px-2 py-0.5 text-[10px] font-medium",
+                          holiday.kind === "feiertag" ? "bg-amber-400/15 text-amber-200" : "bg-emerald-400/15 text-emerald-200"
+                        )}>{holiday.name}</span>
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       {grouped.length === 0 && <p className="text-xs text-white/20 text-center py-2">Kein Plan</p>}
