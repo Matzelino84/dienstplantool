@@ -664,7 +664,7 @@ export default function AdminPage() {
                 <ChevronDown className={cn("h-4 w-4 text-white/40 transition-transform", showGewichtung && "rotate-180")} />
               </button>
               <p className="text-xs text-white/40 mt-1 mb-3">
-                So entscheidet der Solver. <span className="text-white/60">Niedrige Punkte = bessere Wahl.</span> Pro Slot werden alle Hebammen bepunktet, die niedrigste Summe gewinnt.
+                So entscheidet der Solver. <span className="text-white/60">Niedrige Punkte = bessere Wahl.</span> Pro Slot werden alle Hebammen bepunktet, die niedrigste Summe gewinnt. Alle Zähler &amp; Ziele beziehen sich auf den <span className="text-white/70 font-medium">aktuellen Monat</span>.
               </p>
               {showGewichtung && (
                 <div className="space-y-4">
@@ -690,25 +690,25 @@ export default function AdminPage() {
 
                   <GewichtSection title="Lastausgleich (Boni / Mali)" subtitle="Werden auf die Basis addiert.">
                     <GewichtRow label="Fairness-Score (niedriger = vorrangig)" value="bis −50" tone="emerald" hint="−0,5 × (100 − Score)" />
-                    <GewichtRow label="Bereits zugewiesene Dienste" value="+10 / Dienst" tone="amber" />
+                    <GewichtRow label="Bereits zugewiesene Dienste im Monat" value="+10 / Dienst" tone="amber" />
                     <GewichtRow label="Gleiche Schicht am Vortag (Tag/Nacht/Anmeldung)" value="+1500" tone="red" hint="Faktisch verboten" />
                   </GewichtSection>
 
-                  <GewichtSection title="Ziel-Dienste-Range" subtitle="Pro Person konfigurierbar (Min–Max-Dienste).">
-                    <GewichtRow label="Unter Minimum" value="−200" tone="emerald" hint="Boost: ans Min ranführen" />
+                  <GewichtSection title="Ziel-Dienste-Range (pro Monat)" subtitle="Min/Max sind die gewünschten Dienste in der gesamten Monatssumme – nicht pro Woche. Werden im Wunschplan eingestellt.">
+                    <GewichtRow label="Bisherige Dienste im Monat unter Min" value="−200" tone="emerald" hint="Boost: ans Monats-Min heranführen" />
                     <GewichtRow label="Zwischen Min und Max" value="+30 / Schritt" tone="amber" hint="Sanft Richtung Max bremsen" />
-                    <GewichtRow label="Maximum erreicht" value="+600" tone="red" />
+                    <GewichtRow label="Monats-Maximum erreicht" value="+600" tone="red" />
                   </GewichtSection>
 
-                  <GewichtSection title="Wochenende" subtitle="Default-Cap: 2 (bzw. 3 bei Monaten mit ≥5 Wochenenden).">
-                    <GewichtRow label="Pro bereits zugeteiltem WE-Dienst" value="+15" tone="amber" />
-                    <GewichtRow label="WE-Cap der Person erreicht" value="+600" tone="red" />
+                  <GewichtSection title="Wochenende (pro Monat)" subtitle="Default-Cap pro Monat: 2 WE-Dienste (3 bei Monaten mit ≥5 Wochenenden). Pro Person individuell überschreibbar.">
+                    <GewichtRow label="Pro bereits zugeteiltem WE-Dienst im Monat" value="+15" tone="amber" />
+                    <GewichtRow label="WE-Cap der Person für den Monat erreicht" value="+600" tone="red" />
                   </GewichtSection>
 
-                  <GewichtSection title="Anmeldung (Di/Fr)" subtitle="Soll möglichst gleichmäßig verteilt werden.">
-                    <GewichtRow label="Person hat noch keine Anmeldung" value="−250" tone="emerald" hint="Jeder soll ≥ 1 bekommen" />
-                    <GewichtRow label="Pro bereits zugeteilter Anmeldung" value="+12" tone="amber" />
-                    <GewichtRow label="Persönliches Ziel erreicht" value="+200" tone="red" />
+                  <GewichtSection title="Anmeldung (Di/Fr, pro Monat)" subtitle="Soll möglichst gleichmäßig verteilt werden – jede Hebamme soll mindestens 1 Anmeldung im Monat bekommen.">
+                    <GewichtRow label="Person hat im Monat noch keine Anmeldung" value="−250" tone="emerald" hint="Jeder soll ≥ 1 bekommen" />
+                    <GewichtRow label="Pro bereits zugeteilter Anmeldung im Monat" value="+12" tone="amber" />
+                    <GewichtRow label="Persönliches Monats-Ziel erreicht" value="+200" tone="red" />
                   </GewichtSection>
 
                   <GewichtSection title="Tag/Nacht-Ausgleich" subtitle="Verteilt Tagdienste und Nachtdienste fair zwischen den Personen.">

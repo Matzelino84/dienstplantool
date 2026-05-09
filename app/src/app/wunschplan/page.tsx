@@ -661,11 +661,11 @@ export default function WunschplanPage() {
         </GlassCard>
 
         <GlassCard className="mb-6">
-          <h3 className="text-base font-semibold text-white mb-1">Wie viele Dienste möchtest du?</h3>
-          <p className="text-xs text-white/40 mb-4">Solver versucht erst das Minimum für alle, geht dann Richtung Maximum, bevor andere erzwungen werden.</p>
+          <h3 className="text-base font-semibold text-white mb-1">Wie viele Dienste möchtest du diesen Monat?</h3>
+          <p className="text-xs text-white/40 mb-4">Bezieht sich auf die <span className="text-white/70 font-medium">gesamte Monatssumme</span> – nicht auf Dienste pro Woche. Der Solver versucht erst das Minimum für alle zu erreichen, geht dann Richtung Maximum, bevor jemand erzwungen über sein Ziel kommt.</p>
           <div className="space-y-5">
             <div className="flex items-center justify-between">
-              <div><p className="text-sm font-medium text-white/80">Bevorzugt (Min)</p><p className="text-xs text-white/40">Möchte mindestens so viele</p></div>
+              <div><p className="text-sm font-medium text-white/80">Bevorzugt (Min)</p><p className="text-xs text-white/40">Mindestens so viele Dienste im Monat</p></div>
               <div className="flex items-center gap-3">
                 <button onClick={() => setZielDiensteMin(Math.max(1, zielDiensteMin - 1))} className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-glass active:scale-95"><Minus className="h-5 w-5" /></button>
                 <span className="text-2xl font-bold text-emerald-300 w-8 text-center">{zielDiensteMin}</span>
@@ -673,7 +673,7 @@ export default function WunschplanPage() {
               </div>
             </div>
             <div className="flex items-center justify-between">
-              <div><p className="text-sm font-medium text-white/80">Maximum</p><p className="text-xs text-white/40">Mehr nur, wenn unbedingt nötig</p></div>
+              <div><p className="text-sm font-medium text-white/80">Maximum</p><p className="text-xs text-white/40">Mehr im Monat nur, wenn unbedingt nötig</p></div>
               <div className="flex items-center gap-3">
                 <button onClick={() => setZielDiensteMax(Math.max(zielDiensteMin, zielDiensteMax - 1))} className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-glass active:scale-95"><Minus className="h-5 w-5" /></button>
                 <span className="text-2xl font-bold text-white w-8 text-center">{zielDiensteMax}</span>
