@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { GlassCard } from "@/components/ui/glass-card";
-import { StatCard } from "@/components/ui/stat-card";
 import {
   solveDienstplan,
   type PersonWunsch,
@@ -44,7 +43,6 @@ import {
   ChevronRight,
   X,
   UserX,
-  TrendingUp,
   Printer,
   Eye,
   Trash2,
@@ -452,6 +450,10 @@ export default function AdminPage() {
   };
 
   const isUnsavedDraft = result !== null && Object.keys(zuweisungIdMap).length === 0;
+  const wuenscheErfuelltPct = result && result.statistik.besetzt > 0
+    ? Math.round((result.statistik.wuenscheErfuellt / result.statistik.besetzt) * 100)
+    : 0;
+  const [editFilter, setEditFilter] = useState<"alle" | "erzwungen" | "leer">("alle");
 
   const handlePersistAndRelease = async (releaseToAll: boolean) => {
     if (!result) return;
@@ -521,41 +523,45 @@ export default function AdminPage() {
     <div className="flex min-h-screen flex-col">
       <NavBar />
       <main className="flex-1 mx-auto w-full max-w-2xl px-4 py-6 sm:px-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Shield className="h-6 w-6 text-amber-400" />
-            <div>
-              <h1 className="text-2xl font-bold text-white tracking-tight">Admin</h1>
-              <p className="text-sm text-white/50">{MONATE[month]} {year}</p>
+        {/* Header with month switcher + status badge */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-400/15 ring-1 ring-amber-400/30">
+                <Shield className="h-5 w-5 text-amber-300" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold text-white tracking-tight">Admin</h1>
+                <p className="text-sm text-white/50">{MONATE[month]} {year}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={prevMonth} className="rounded-xl p-2 text-white/50 hover:text-white hover:bg-white/5 active:scale-95"><ChevronLeft className="h-5 w-5" /></button>
+              <button onClick={nextMonth} className="rounded-xl p-2 text-white/50 hover:text-white hover:bg-white/5 active:scale-95"><ChevronRight className="h-5 w-5" /></button>
             </div>
           </div>
-          <div className="flex items-center gap-1">
-            <button onClick={prevMonth} className="rounded-lg p-2 text-white/50 hover:text-white hover:bg-white/5"><ChevronLeft className="h-5 w-5" /></button>
-            <button onClick={nextMonth} className="rounded-lg p-2 text-white/50 hover:text-white hover:bg-white/5"><ChevronRight className="h-5 w-5" /></button>
-          </div>
-        </div>
-
-        {(planStatus || isUnsavedDraft) && (
-          <div className={cn(
-            "mb-4 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2",
-            isUnsavedDraft ? "bg-orange-500/15 ring-1 ring-orange-400/30 text-orange-300"
-              : planStatus === "freigegeben" ? "bg-emerald-500/15 ring-1 ring-emerald-400/30 text-emerald-300"
-              : planStatus === "generiert" ? "bg-amber-500/15 ring-1 ring-amber-400/30 text-amber-300"
-              : "bg-white/5 text-white/40"
-          )}>
+          {(planStatus || isUnsavedDraft) && (
             <div className={cn(
-              "h-2 w-2 rounded-full",
-              isUnsavedDraft ? "bg-orange-400 animate-pulse"
-                : planStatus === "freigegeben" ? "bg-emerald-400"
-                : planStatus === "generiert" ? "bg-amber-400" : "bg-white/30"
-            )} />
-            {isUnsavedDraft
-              ? "Lokaler Entwurf – noch nicht gespeichert"
-              : planStatus === "freigegeben" ? "Plan-Status: Freigegeben"
-              : planStatus === "generiert" ? "Plan-Status: Entwurf (nur Admin sichtbar)"
-              : `Plan-Status: ${planStatus}`}
-          </div>
-        )}
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium",
+              isUnsavedDraft ? "bg-orange-500/15 ring-1 ring-orange-400/30 text-orange-300"
+                : planStatus === "freigegeben" ? "bg-emerald-500/15 ring-1 ring-emerald-400/30 text-emerald-300"
+                : planStatus === "generiert" ? "bg-amber-500/15 ring-1 ring-amber-400/30 text-amber-300"
+                : "bg-white/5 text-white/40"
+            )}>
+              <div className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                isUnsavedDraft ? "bg-orange-400 animate-pulse"
+                  : planStatus === "freigegeben" ? "bg-emerald-400"
+                  : planStatus === "generiert" ? "bg-amber-400" : "bg-white/30"
+              )} />
+              {isUnsavedDraft
+                ? "Entwurf nicht gespeichert"
+                : planStatus === "freigegeben" ? "Freigegeben"
+                : planStatus === "generiert" ? "Entwurf (nur Admin sichtbar)"
+                : planStatus}
+            </div>
+          )}
+        </div>
 
         {loading ? (
           <div className="flex justify-center py-20">
@@ -563,10 +569,16 @@ export default function AdminPage() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3 mb-6">
-              <StatCard label="Abgegeben" value={`${abgegeben}/${team.length}`} icon={ClipboardList}
-                trend={offen > 0 ? `${offen} fehlen noch` : "Alle da!"} />
-              <StatCard label="Fairness" value={`${Math.round(team.reduce((s, t) => s + (t.fairness_score || 50), 0) / (team.length || 1))}%`} icon={TrendingUp} />
+            {/* Compact stat strip – grows when a plan is loaded */}
+            <div className={cn("grid gap-2 mb-6", result ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2")}>
+              <MiniStat label="Abgegeben" value={`${abgegeben}/${team.length}`} hint={offen > 0 ? `${offen} fehlen` : "alle da"} accent={offen > 0 ? "amber" : "emerald"} />
+              <MiniStat label="Fairness" value={`${Math.round(team.reduce((s, t) => s + (t.fairness_score || 50), 0) / (team.length || 1))}%`} accent="white" />
+              {result && (
+                <>
+                  <MiniStat label="Wünsche erfüllt" value={`${wuenscheErfuelltPct}%`} hint={`${result.statistik.wuenscheErfuellt}/${result.statistik.besetzt}`} accent={wuenscheErfuelltPct >= 80 ? "emerald" : wuenscheErfuelltPct >= 60 ? "amber" : "red"} />
+                  <MiniStat label="Erzwungen" value={`${result.statistik.erzwungen}`} accent={result.statistik.erzwungen === 0 ? "emerald" : "amber"} />
+                </>
+              )}
             </div>
 
             <GlassCard className="mb-6">
@@ -635,21 +647,6 @@ export default function AdminPage() {
 
             {result && (
               <>
-                <div className="grid grid-cols-3 gap-3 mb-6">
-                  <GlassCard className="p-4 text-center">
-                    <p className="text-2xl font-bold text-emerald-400">{result.statistik.besetzt}</p>
-                    <p className="text-[11px] text-white/40">Besetzt</p>
-                  </GlassCard>
-                  <GlassCard className="p-4 text-center">
-                    <p className="text-2xl font-bold text-white/70">{result.statistik.besetzt > 0 ? Math.round((result.statistik.wuenscheErfuellt / result.statistik.besetzt) * 100) : 0}%</p>
-                    <p className="text-[11px] text-white/40">Wünsche erfüllt</p>
-                  </GlassCard>
-                  <GlassCard className="p-4 text-center">
-                    <p className="text-2xl font-bold text-amber-400">{result.statistik.erzwungen}</p>
-                    <p className="text-[11px] text-white/40">Erzwungen</p>
-                  </GlassCard>
-                </div>
-
                 {result.statistik.erzwungen > 0 && (
                   <GlassCard className="mb-6">
                     <h2 className="text-base font-semibold text-white mb-3 flex items-center gap-2">
@@ -685,34 +682,77 @@ export default function AdminPage() {
                 )}
 
                 <GlassCard className="mb-6">
-                  <h2 className="text-base font-semibold text-white mb-3">Verteilung</h2>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-base font-semibold text-white">Verteilung</h2>
+                    <div className="flex items-center gap-3 text-[10px] text-white/35">
+                      <span><span className="text-white/60">N</span> Dienste</span>
+                      <span><span className="text-white/60">WE</span> Wochenende</span>
+                      <span><span className="text-white/60">A</span> Anmeldung</span>
+                    </div>
+                  </div>
                   <div className="space-y-2">
-                    {team.map((member) => {
-                      const count = result.zuweisungen.filter((z) => z.name === member.vorname).length;
-                      const forced = erzwungenPro[member.vorname] || 0;
-                      const we = result.statistik.weVerteilung[member.vorname] || 0;
-                      const an = result.statistik.anmeldungVerteilung?.[member.vorname] || 0;
-                      const maxCount = Math.max(...team.map((t) => result.zuweisungen.filter((z) => z.name === t.vorname).length), 1);
-                      return (
-                        <div key={member.id} className="flex items-center gap-3">
-                          <span className="text-sm text-white/60 w-20 shrink-0">{member.vorname}</span>
-                          <div className="flex-1 h-3 rounded-full bg-white/5 overflow-hidden">
-                            <div className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary/30" style={{ width: `${(count / maxCount) * 100}%` }} />
+                    {team
+                      .map((member) => {
+                        const count = result.zuweisungen.filter((z) => z.name === member.vorname).length;
+                        const forced = erzwungenPro[member.vorname] || 0;
+                        const we = result.statistik.weVerteilung[member.vorname] || 0;
+                        const an = result.statistik.anmeldungVerteilung?.[member.vorname] || 0;
+                        const w = allWuensche.find((x) => x.hebamme === member.id);
+                        const min = w?.ziel_dienste_min ?? 0;
+                        const max = w?.ziel_dienste_max ?? w?.ziel_dienste ?? 0;
+                        return { member, count, forced, we, an, min, max };
+                      })
+                      .sort((a, b) => b.count - a.count)
+                      .map(({ member, count, forced, we, an, min, max }) => {
+                        const maxCount = Math.max(...team.map((t) => result.zuweisungen.filter((z) => z.name === t.vorname).length), 1);
+                        const inRange = max > 0 && count >= min && count <= max;
+                        const overMax = max > 0 && count > max;
+                        const underMin = min > 0 && count < min;
+                        return (
+                          <div key={member.id} className="flex items-center gap-2.5">
+                            <div className="flex items-center gap-2 w-24 shrink-0 min-w-0">
+                              <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: member.farbe || "#666" }} />
+                              <span className="text-sm text-white/75 truncate">{member.vorname}</span>
+                            </div>
+                            <div className="flex-1 h-2.5 rounded-full bg-white/5 overflow-hidden relative">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full",
+                                  inRange ? "bg-emerald-400/40" : overMax ? "bg-amber-400/50" : underMin ? "bg-orange-400/40" : "bg-primary/40"
+                                )}
+                                style={{ width: `${Math.min(100, (count / maxCount) * 100)}%` }}
+                              />
+                              {/* Range markers */}
+                              {min > 0 && (
+                                <div className="absolute top-0 bottom-0 w-px bg-white/30" style={{ left: `${Math.min(100, (min / maxCount) * 100)}%` }} title={`Min ${min}`} />
+                              )}
+                              {max > 0 && max !== min && (
+                                <div className="absolute top-0 bottom-0 w-px bg-white/40" style={{ left: `${Math.min(100, (max / maxCount) * 100)}%` }} title={`Max ${max}`} />
+                              )}
+                            </div>
+                            <span className={cn(
+                              "text-sm font-bold w-7 text-right tabular-nums",
+                              inRange ? "text-emerald-300" : overMax ? "text-amber-300" : underMin ? "text-orange-300" : "text-white/70"
+                            )}>{count}</span>
+                            <span className="text-[10px] text-white/30 w-10 text-right tabular-nums">WE:{we}</span>
+                            <span className="text-[10px] text-white/30 w-9 text-right tabular-nums">A:{an}</span>
+                            {forced > 0 ? (
+                              <span className="text-[10px] text-amber-400/70 w-9 text-right tabular-nums">!{forced}</span>
+                            ) : (
+                              <span className="w-9" />
+                            )}
                           </div>
-                          <span className="text-sm font-medium text-white/70 w-6 text-right">{count}</span>
-                          <span className="text-[10px] text-white/30 w-10 text-right">WE:{we}</span>
-                          <span className="text-[10px] text-white/30 w-10 text-right">An:{an}</span>
-                          {forced > 0 && <span className="text-[10px] text-amber-400/60 w-7 text-right">{forced}x</span>}
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                   </div>
                   {result.statistik.zielVerfehlt && result.statistik.zielVerfehlt.length > 0 && (
                     <div className="mt-4 pt-3 border-t border-white/5 space-y-1">
-                      <p className="text-xs text-amber-400/80 mb-1">Ziele verfehlt:</p>
+                      <p className="text-xs text-amber-400/80 mb-1 flex items-center gap-1.5">
+                        <AlertTriangle className="h-3 w-3" /> Ziele verfehlt
+                      </p>
                       {result.statistik.zielVerfehlt.map((v, i) => (
                         <p key={i} className="text-xs text-white/50">
-                          <span className="text-white/70">{v.name}</span> – {v.typ === "dienste" ? "Dienste" : "Anmeldungen"}: <span className="text-amber-300">{v.ist}</span> von <span className="text-white/40">{v.ziel}</span>
+                          <span className="text-white/75 font-medium">{v.name}</span> – {v.typ === "dienste" ? "Dienste" : "Anmeldungen"}: <span className="text-amber-300 font-mono">{v.ist}</span> / <span className="text-white/40 font-mono">{v.ziel}</span>
                         </p>
                       ))}
                     </div>
@@ -720,82 +760,157 @@ export default function AdminPage() {
                 </GlassCard>
 
                 <GlassCard className="mb-6">
-                  <h2 className="text-base font-semibold text-white mb-3">Plan bearbeiten</h2>
+                  <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-base font-semibold text-white">Plan bearbeiten</h2>
+                    <span className="text-[10px] text-white/30">{result.zuweisungen.length} Slots</span>
+                  </div>
                   <p className="text-xs text-white/40 mb-3">
-                    Person wechseln per Dropdown · 🗑 entfernt die Zuweisung (Slot bleibt leer).
-                    {Object.keys(slotIdMap).length === 0 && " Änderungen sind lokal bis zum nächsten Speichern."}
+                    Person wechseln per Dropdown · 🗑 entfernt die Zuweisung.
+                    {Object.keys(slotIdMap).length === 0 && " Lokal bis zum nächsten Speichern."}
                   </p>
-                  <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+                  {/* Filter pills */}
+                  <div className="flex gap-1.5 mb-3">
+                    {([
+                      { key: "alle", label: "Alle Tage" },
+                      { key: "erzwungen", label: `Erzwungen ${result.statistik.erzwungen > 0 ? `(${result.statistik.erzwungen})` : ""}` },
+                      { key: "leer", label: "Leere Slots" },
+                    ] as const).map((f) => (
+                      <button
+                        key={f.key}
+                        onClick={() => setEditFilter(f.key)}
+                        className={cn(
+                          "rounded-full px-3 py-1 text-[11px] font-medium transition-all active:scale-95",
+                          editFilter === f.key ? "bg-primary/25 ring-1 ring-primary/40 text-white" : "bg-white/5 text-white/50 hover:bg-white/10"
+                        )}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="space-y-2 max-h-[640px] overflow-y-auto pr-1">
+                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).flatMap((day) => {
                       const types = expectedSlotTypes(day);
+                      const slotsForDay = types.map((typ) => ({
+                        typ,
+                        z: result.zuweisungen.find((x) => x.tag === day && x.typ === typ),
+                      }));
+
+                      const visibleSlots = slotsForDay.filter(({ z }) => {
+                        if (editFilter === "erzwungen") return z?.erzwungen;
+                        if (editFilter === "leer") return !z;
+                        return true;
+                      });
+                      if (visibleSlots.length === 0) return [];
+
                       const dow = WOCHENTAGE[new Date(year, month, day).getDay()];
                       const isWE = [0, 6].includes(new Date(year, month, day).getDay());
-                      return (
-                        <div key={day} className={cn("rounded-xl p-3", isWE ? "bg-white/[0.02]" : "bg-white/[0.04]")}>
-                          <p className={cn("text-xs font-semibold mb-2", isWE ? "text-white/40" : "text-white/65")}>
-                            {dow} {day}.{isFeiertag(day) && <span className="ml-2 text-amber-400/70">Feiertag</span>}
-                          </p>
+                      const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                      const holiday = bayernHolidays[dateKey] || (feiertage.find((f) => f.datum.startsWith(dateKey)) ? { name: feiertage.find((f) => f.datum.startsWith(dateKey))!.name || "Feiertag", kind: feiertage.find((f) => f.datum.startsWith(dateKey))!.typ } : null);
+                      const isToday = year === new Date().getFullYear() && month === new Date().getMonth() && day === new Date().getDate();
+
+                      return [(
+                        <div
+                          key={day}
+                          className={cn(
+                            "rounded-xl p-3 transition-all",
+                            isWE ? "bg-white/[0.02]" : "bg-white/[0.04]",
+                            holiday?.kind === "feiertag" && "bg-amber-400/[0.08] ring-1 ring-amber-300/25",
+                            holiday?.kind === "ferien" && "bg-emerald-400/[0.05] ring-1 ring-emerald-300/15",
+                            isToday && "ring-1 ring-primary/40"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <p className={cn("text-xs font-semibold", isWE ? "text-white/40" : "text-white/70")}>
+                              {dow} {day}.
+                            </p>
+                            {isToday && <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-[9px] font-bold text-primary uppercase">Heute</span>}
+                            {holiday && (
+                              <span className={cn(
+                                "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                                holiday.kind === "feiertag" ? "bg-amber-400/20 text-amber-200" : "bg-emerald-400/20 text-emerald-200"
+                              )}>
+                                {holiday.name}
+                              </span>
+                            )}
+                          </div>
                           <div className="space-y-1.5">
-                            {types.map((typ) => {
-                              const z = result.zuweisungen.find((x) => x.tag === day && x.typ === typ);
-                              return (
-                                <SlotEditor
-                                  key={typ}
-                                  tag={day}
-                                  typ={typ}
-                                  zuweisung={z}
-                                  team={team}
-                                  farbenMap={farbenMap}
-                                  onSwap={swapPerson}
-                                  onClear={clearSlot}
-                                  onTimeEdit={(field, val) => {
-                                    if (!result || !z) return;
-                                    setResult({
-                                      ...result,
-                                      zuweisungen: result.zuweisungen.map((x) =>
-                                        x.tag === day && x.typ === typ ? { ...x, [field === "von" ? "von" : "bis"]: val } : x
-                                      ),
-                                    });
-                                    persistEdit(day, typ, field === "von" ? { zeit_von: val } : { zeit_bis: val });
-                                  }}
-                                />
-                              );
-                            })}
+                            {visibleSlots.map(({ typ, z }) => (
+                              <SlotEditor
+                                key={typ}
+                                tag={day}
+                                typ={typ}
+                                zuweisung={z}
+                                team={team}
+                                farbenMap={farbenMap}
+                                onSwap={swapPerson}
+                                onClear={clearSlot}
+                                onTimeEdit={(field, val) => {
+                                  if (!result || !z) return;
+                                  setResult({
+                                    ...result,
+                                    zuweisungen: result.zuweisungen.map((x) =>
+                                      x.tag === day && x.typ === typ ? { ...x, [field === "von" ? "von" : "bis"]: val } : x
+                                    ),
+                                  });
+                                  persistEdit(day, typ, field === "von" ? { zeit_von: val } : { zeit_bis: val });
+                                }}
+                              />
+                            ))}
                           </div>
                         </div>
-                      );
+                      )];
                     })}
+                    {/* Empty state for filters */}
+                    {editFilter !== "alle" && (() => {
+                      const anyMatch = Array.from({ length: daysInMonth }, (_, i) => i + 1).some((day) => {
+                        return expectedSlotTypes(day).some((typ) => {
+                          const z = result.zuweisungen.find((x) => x.tag === day && x.typ === typ);
+                          if (editFilter === "erzwungen") return z?.erzwungen;
+                          if (editFilter === "leer") return !z;
+                          return false;
+                        });
+                      });
+                      if (anyMatch) return null;
+                      return (
+                        <p className="text-center text-sm text-white/30 py-6">
+                          {editFilter === "erzwungen" ? "Keine erzwungenen Einteilungen 🎉" : "Keine leeren Slots"}
+                        </p>
+                      );
+                    })()}
                   </div>
                 </GlassCard>
 
-                <div className="space-y-3 mb-8">
-                  <a href="/dienstplan" className="w-full flex items-center justify-center gap-2 rounded-2xl glass py-4 text-base font-semibold text-white transition-glass glass-hover">
-                    Plan ansehen
-                  </a>
+                {/* Primary action prominent, others as compact toolbar */}
+                <button
+                  onClick={() => handlePersistAndRelease(true)}
+                  disabled={savingPlan}
+                  className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500/35 to-emerald-600/35 ring-1 ring-emerald-400/40 py-5 text-base font-bold text-emerald-200 transition-glass hover:from-emerald-500/45 hover:to-emerald-600/45 active:scale-[0.98] mb-3 shadow-lg shadow-emerald-500/10"
+                >
+                  {savingPlan ? (
+                    <><div className="h-5 w-5 rounded-full border-2 border-emerald-300/40 border-t-emerald-300 animate-spin" /> Wird gespeichert...</>
+                  ) : (
+                    <><CheckCircle2 className="h-5 w-5" /> Speichern &amp; für alle freigeben</>
+                  )}
+                </button>
+                <div className="grid grid-cols-3 gap-2 mb-8">
                   <button
                     onClick={() => handlePersistAndRelease(false)}
                     disabled={savingPlan}
-                    className="w-full flex items-center justify-center gap-2 rounded-2xl bg-white/8 ring-1 ring-white/15 py-4 text-base font-semibold text-white/80 transition-glass hover:bg-white/12 active:scale-[0.98]"
+                    className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 ring-1 ring-white/10 py-3 text-xs font-semibold text-white/70 transition-all hover:bg-white/10 active:scale-95"
                   >
-                    Als Entwurf speichern
+                    Entwurf speichern
                   </button>
-                  <button
-                    onClick={() => handlePersistAndRelease(true)}
-                    disabled={savingPlan}
-                    className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500/30 to-emerald-600/30 ring-1 ring-emerald-400/30 py-4 text-base font-bold text-emerald-300 transition-glass hover:from-emerald-500/40 hover:to-emerald-600/40 active:scale-[0.98]"
+                  <a
+                    href="/dienstplan"
+                    className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 ring-1 ring-white/10 py-3 text-xs font-semibold text-white/70 transition-all hover:bg-white/10 active:scale-95"
                   >
-                    {savingPlan ? (
-                      <><div className="h-5 w-5 rounded-full border-2 border-emerald-300/40 border-t-emerald-300 animate-spin" /> Wird gespeichert...</>
-                    ) : (
-                      <><CheckCircle2 className="h-5 w-5" /> Speichern & für alle freigeben</>
-                    )}
-                  </button>
+                    <Eye className="h-3.5 w-3.5" /> Vorschau
+                  </a>
                   <button
                     onClick={() => exportPDF(result, year, month)}
-                    className="w-full flex items-center justify-center gap-2 rounded-2xl glass py-4 text-base font-semibold text-white/70 transition-glass glass-hover active:scale-[0.98]"
+                    className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 ring-1 ring-white/10 py-3 text-xs font-semibold text-white/70 transition-all hover:bg-white/10 active:scale-95"
                   >
-                    <Printer className="h-5 w-5" />
-                    PDF herunterladen
+                    <Printer className="h-3.5 w-3.5" /> PDF
                   </button>
                 </div>
               </>
@@ -1001,6 +1116,32 @@ function DrillSheet({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  accent: "white" | "emerald" | "amber" | "red";
+}) {
+  const valColor = {
+    white: "text-white",
+    emerald: "text-emerald-300",
+    amber: "text-amber-300",
+    red: "text-red-300",
+  }[accent];
+  return (
+    <div className="rounded-xl bg-white/[0.04] ring-1 ring-white/5 px-3 py-2.5">
+      <p className="text-[10px] uppercase tracking-wider text-white/35">{label}</p>
+      <p className={cn("text-xl font-bold mt-0.5 leading-none", valColor)}>{value}</p>
+      {hint && <p className="text-[10px] text-white/40 mt-1">{hint}</p>}
     </div>
   );
 }
