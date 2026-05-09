@@ -53,6 +53,8 @@ export type SolverResult = {
     wuenscheErfuellt: number;
     erzwungen: number;
     weVerteilung: Record<string, number>;
+    anmeldungVerteilung: Record<string, number>;
+    zielVerfehlt: { name: string; ziel: number; ist: number; typ: "dienste" | "anmeldungen" }[];
   };
 };
 
@@ -88,7 +90,8 @@ export function solveDienstplan(
   wuensche: Record<string, Record<number, PersonWunsch>>,
   teamNames: string[],
   isAnmeldungTag: (day: number) => boolean,
-  isFeiertag: (day: number) => boolean = () => false
+  isFeiertag: (day: number) => boolean = () => false,
+  ziele: Record<string, { dienste: number; anmeldungen: number }> = {}
 ): SolverResult {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const zuweisungen: SlotZuweisung[] = [];
@@ -96,20 +99,20 @@ export function solveDienstplan(
 
   const assignCount: Record<string, number> = {};
   const assignedDays: Record<string, Set<number>> = {};
-  const assignedDaysAll: Record<string, Set<number>> = {}; // including BD nights
   const tdNdCount: Record<string, { td: number; nd: number }> = {};
   const bdCount: Record<string, { tag: number; nacht: number }> = {};
   const weCount: Record<string, number> = {};
   const anmeldungCount: Record<string, number> = {};
+  const nurBdsWeekdays: Record<string, Set<number>> = {}; // for diversifying BDs across weekdays for "nur_bds" people
 
   for (const name of teamNames) {
     assignCount[name] = 0;
     assignedDays[name] = new Set();
-    assignedDaysAll[name] = new Set();
     tdNdCount[name] = { td: 0, nd: 0 };
     bdCount[name] = { tag: 0, nacht: 0 };
     weCount[name] = 0;
     anmeldungCount[name] = 0;
+    nurBdsWeekdays[name] = new Set();
   }
 
   // Build all required slots for the month
@@ -227,6 +230,13 @@ export function solveDienstplan(
       // Balance: more assignments = lower priority
       priority += (assignCount[name] || 0) * 10;
 
+      // ziel_dienste soft cap (#4)
+      const ziel = ziele[name]?.dienste ?? 0;
+      if (ziel > 0) {
+        if (assignCount[name] >= ziel) priority += 400;
+        else if (assignCount[name] >= ziel - 1) priority += 100;
+      }
+
       // TD/ND balance: prefer the underrepresented side
       if (isFestActiveTyp(slot.typ)) {
         const stat = tdNdCount[name];
@@ -241,9 +251,24 @@ export function solveDienstplan(
         priority += diff * 5;
       }
 
-      // Anmeldung target: minimum 1, soft cap based on ziel (currently we only have global ziel so use 2)
+      // Anmeldung handling: enforce min-1 (#5) + ziel soft cap (#4)
       if (slot.typ === "anmeldung") {
+        const zielA = ziele[name]?.anmeldungen ?? 1;
+        if (!settings.keine_anmeldung && anmeldungCount[name] === 0) {
+          priority -= 250; // strong bonus: try hard to give every person at least one
+        }
+        if (zielA > 0 && anmeldungCount[name] >= zielA) priority += 200;
         priority += anmeldungCount[name] * 12;
+      }
+
+      // Einarbeitung details (#6): nur_bds people
+      if (settings.nur_bds) {
+        if (dayIsWE) priority += 60; // prefer weekdays
+        if (slot.typ === "bd_nacht") priority += 30; // prefer TBD over NBD
+        if (isBdTyp(slot.typ)) {
+          const dow = new Date(year, month, slot.tag).getDay();
+          if (nurBdsWeekdays[name]?.has(dow)) priority += 25; // diversify across weekdays
+        }
       }
 
       // Weekend fairness
@@ -331,13 +356,33 @@ export function solveDienstplan(
 
     assignCount[chosen.name] = (assignCount[chosen.name] || 0) + 1;
     assignedDays[chosen.name]?.add(slot.tag);
-    assignedDaysAll[chosen.name]?.add(slot.tag);
     if (slot.typ === "tagdienst") tdNdCount[chosen.name].td++;
     if (slot.typ === "nachtdienst") tdNdCount[chosen.name].nd++;
     if (slot.typ === "bd_tag") bdCount[chosen.name].tag++;
     if (slot.typ === "bd_nacht") bdCount[chosen.name].nacht++;
     if (slot.typ === "anmeldung") anmeldungCount[chosen.name]++;
     if (dayIsWE) weCount[chosen.name]++;
+
+    // Track BD weekdays for "nur_bds" diversity (#6)
+    const chosenSettings = wuensche[chosen.name]?.[slot.tag]?.settings;
+    if (chosenSettings?.nur_bds && isBdTyp(slot.typ)) {
+      const dow = new Date(year, month, slot.tag).getDay();
+      nurBdsWeekdays[chosen.name]?.add(dow);
+    }
+  }
+
+  // Build "ziel verfehlt" list
+  const zielVerfehlt: { name: string; ziel: number; ist: number; typ: "dienste" | "anmeldungen" }[] = [];
+  for (const name of teamNames) {
+    const z = ziele[name];
+    if (!z) continue;
+    if (z.dienste > 0 && Math.abs(assignCount[name] - z.dienste) > 2) {
+      zielVerfehlt.push({ name, ziel: z.dienste, ist: assignCount[name], typ: "dienste" });
+    }
+    const settings = wuensche[name]?.[1]?.settings || {};
+    if (z.anmeldungen > 0 && !settings.keine_anmeldung && anmeldungCount[name] < z.anmeldungen) {
+      zielVerfehlt.push({ name, ziel: z.anmeldungen, ist: anmeldungCount[name], typ: "anmeldungen" });
+    }
   }
 
   return {
@@ -349,6 +394,8 @@ export function solveDienstplan(
       wuenscheErfuellt: zuweisungen.filter((z) => z.wunschErfuellt).length,
       erzwungen: zuweisungen.filter((z) => z.erzwungen).length,
       weVerteilung: weCount,
+      anmeldungVerteilung: anmeldungCount,
+      zielVerfehlt,
     },
   };
 }

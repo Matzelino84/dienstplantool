@@ -30,6 +30,8 @@ export interface HebammeSettings {
   max_we_dienste?: number;
   fix_blocked_weekdays?: number[]; // 0=So..6=Sa
   fix_frei_weekdays?: number[];
+  fix_blocked_dates?: string[]; // YYYY-MM-DD, höhere Priorität als Wochentag-Pattern
+  fix_frei_dates?: string[];
 }
 
 export interface Hebamme {

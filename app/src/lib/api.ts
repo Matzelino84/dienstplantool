@@ -176,7 +176,7 @@ export async function getZuweisungen(monat: string): Promise<Zuweisung[]> {
 export async function saveZuweisungenMitSlots(
   monat: string,
   eintraege: {
-    datum: string; // YYYY-MM-DD
+    tag: number;
     typ: SchichtTyp;
     hebammeId: string;
     zeit_von: string;
@@ -185,19 +185,21 @@ export async function saveZuweisungenMitSlots(
     manuell_geaendert: boolean;
     ist_feiertag?: boolean;
   }[]
-): Promise<void> {
+): Promise<Record<string, string>> {
   const oldZ = await getZuweisungen(monat);
   for (const z of oldZ) {
     await pb.collection("zuweisungen").delete(z.id);
   }
+  const datumOf = (tag: number) => `${monat}-${String(tag).padStart(2, "0")} 00:00:00.000Z`;
   const slotMap = await ensureSchichtSlots(
     monat,
-    eintraege.map((e) => ({ datum: e.datum, typ: e.typ, ist_feiertag: e.ist_feiertag }))
+    eintraege.map((e) => ({ datum: datumOf(e.tag), typ: e.typ, ist_feiertag: e.ist_feiertag }))
   );
+  const idMap: Record<string, string> = {};
   for (const e of eintraege) {
-    const slotId = slotMap[`${e.datum}|${e.typ}`];
+    const slotId = slotMap[`${datumOf(e.tag)}|${e.typ}`];
     if (!slotId) continue;
-    await pb.collection("zuweisungen").create({
+    const rec = await pb.collection("zuweisungen").create({
       hebamme: e.hebammeId,
       schicht_slot: slotId,
       monat,
@@ -206,7 +208,28 @@ export async function saveZuweisungenMitSlots(
       zeit_von: e.zeit_von,
       zeit_bis: e.zeit_bis,
     });
+    idMap[`${e.tag}|${e.typ}`] = rec.id;
   }
+  return idMap;
+}
+
+export async function updateZuweisung(
+  recordId: string,
+  data: {
+    hebammeId?: string;
+    zeit_von?: string;
+    zeit_bis?: string;
+    wunsch_erfuellt?: boolean;
+    manuell_geaendert?: boolean;
+  }
+): Promise<void> {
+  const payload: Record<string, unknown> = {};
+  if (data.hebammeId !== undefined) payload.hebamme = data.hebammeId;
+  if (data.zeit_von !== undefined) payload.zeit_von = data.zeit_von;
+  if (data.zeit_bis !== undefined) payload.zeit_bis = data.zeit_bis;
+  if (data.wunsch_erfuellt !== undefined) payload.wunsch_erfuellt = data.wunsch_erfuellt;
+  if (data.manuell_geaendert !== undefined) payload.manuell_geaendert = data.manuell_geaendert;
+  await pb.collection("zuweisungen").update(recordId, payload);
 }
 
 // ===== DIENSTPLAENE =====

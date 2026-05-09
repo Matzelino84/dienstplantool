@@ -24,6 +24,7 @@ import {
   Plus,
   Trash2,
   Calendar,
+  CalendarOff,
   Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -70,6 +71,19 @@ export default function EinstellungenPage() {
 
   const updateNum = (key: keyof HebammeSettings, value: number) => {
     setSettings({ ...settings, [key]: value });
+  };
+
+  const addFixDate = (key: "fix_blocked_dates" | "fix_frei_dates", date: string) => {
+    if (!date) return;
+    const arr = settings[key] || [];
+    if (arr.includes(date)) return;
+    const next = [...arr, date].sort();
+    setSettings({ ...settings, [key]: next });
+  };
+
+  const removeFixDate = (key: "fix_blocked_dates" | "fix_frei_dates", date: string) => {
+    const arr = (settings[key] || []).filter((d) => d !== date);
+    setSettings({ ...settings, [key]: arr });
   };
 
   const handleSave = async () => {
@@ -173,6 +187,56 @@ export default function EinstellungenPage() {
                 );
               })}
             </div>
+          </GlassCard>
+
+          <GlassCard className="mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <CalendarOff className="h-4 w-4 text-orange-400" />
+              <h2 className="text-base font-semibold text-white">Konkrete Sperr- &amp; Frei-Tage</h2>
+            </div>
+            <p className="text-xs text-white/40 mb-4">
+              Einzelne Daten (z.B. Kurstage), die im Wunschplan automatisch vorbelegt werden. Schlägt das Wochentag-Pattern.
+            </p>
+
+            <DateAdder
+              label="Sperr-Tag (Urlaub)"
+              accent="red"
+              onAdd={(d) => addFixDate("fix_blocked_dates", d)}
+            />
+            {(settings.fix_blocked_dates?.length ?? 0) > 0 && (
+              <div className="mt-2 space-y-1 mb-3">
+                {(settings.fix_blocked_dates || []).map((d) => (
+                  <div key={d} className="flex items-center gap-2 rounded-lg bg-red-500/10 ring-1 ring-red-400/20 px-3 py-1.5">
+                    <Lock className="h-3 w-3 text-red-300" />
+                    <span className="text-xs text-red-200 flex-1 font-mono">{d}</span>
+                    <button onClick={() => removeFixDate("fix_blocked_dates", d)} className="rounded p-1 text-red-300/70 hover:text-red-200">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-4">
+              <DateAdder
+                label="Lieber-frei-Tag"
+                accent="amber"
+                onAdd={(d) => addFixDate("fix_frei_dates", d)}
+              />
+            </div>
+            {(settings.fix_frei_dates?.length ?? 0) > 0 && (
+              <div className="mt-2 space-y-1">
+                {(settings.fix_frei_dates || []).map((d) => (
+                  <div key={d} className="flex items-center gap-2 rounded-lg bg-amber-500/10 ring-1 ring-amber-400/20 px-3 py-1.5">
+                    <Heart className="h-3 w-3 text-amber-300" />
+                    <span className="text-xs text-amber-200 flex-1 font-mono">{d}</span>
+                    <button onClick={() => removeFixDate("fix_frei_dates", d)} className="rounded p-1 text-amber-300/70 hover:text-amber-200">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </GlassCard>
 
           <GlassCard className="mb-4">
@@ -370,6 +434,44 @@ export default function EinstellungenPage() {
         )}
       </div>
     </AuthGuard>
+  );
+}
+
+function DateAdder({
+  label,
+  accent,
+  onAdd,
+}: {
+  label: string;
+  accent: "red" | "amber";
+  onAdd: (date: string) => void;
+}) {
+  const [val, setVal] = useState("");
+  const accentBg = accent === "red" ? "bg-red-500/15 ring-red-400/30 hover:bg-red-500/25" : "bg-amber-500/15 ring-amber-400/30 hover:bg-amber-500/25";
+  const accentText = accent === "red" ? "text-red-200" : "text-amber-200";
+
+  return (
+    <div>
+      <label className="text-xs text-white/50 block mb-1.5">{label}</label>
+      <div className="flex gap-2">
+        <input
+          type="date"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          className="flex-1 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary/50"
+        />
+        <button
+          onClick={() => {
+            if (!val) return;
+            onAdd(val);
+            setVal("");
+          }}
+          className={cn("rounded-xl px-4 py-2.5 text-sm font-semibold ring-1 transition-all active:scale-95", accentBg, accentText)}
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
   );
 }
 

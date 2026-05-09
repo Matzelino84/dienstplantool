@@ -18,7 +18,9 @@ import {
   getWuensche,
   saveDienstplan,
   saveZuweisungenMitSlots,
+  updateZuweisung,
   getDienstplan,
+  getZuweisungen,
   getFeiertage,
 } from "@/lib/api";
 import {
@@ -80,6 +82,8 @@ export default function AdminPage() {
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
   const [selectedKonflikt, setSelectedKonflikt] = useState<SolverKonflikt | null>(null);
   const [drillMember, setDrillMember] = useState<Hebamme | null>(null);
+  const [zuweisungIdMap, setZuweisungIdMap] = useState<Record<string, string>>({});
+  const [editPersistError, setEditPersistError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoading && !isAdmin) router.replace("/");
@@ -88,21 +92,89 @@ export default function AdminPage() {
   useEffect(() => {
     setLoading(true);
     setResult(null);
+    setZuweisungIdMap({});
     Promise.all([
       getTeam(),
       getWuensche(monatKey),
       getFeiertage(year),
       getDienstplan(monatKey),
+      getZuweisungen(monatKey),
     ])
-      .then(([t, w, f, p]) => {
+      .then(([t, w, f, p, zList]) => {
         setTeam(t);
         setAllWuensche(w);
         setFeiertage(f);
         setPlanStatus(p?.status ?? null);
+
+        if (zList.length > 0) {
+          const idToName: Record<string, string> = {};
+          for (const m of t) idToName[m.id] = m.vorname;
+
+          const zuweisungen = zList
+            .map((rec) => {
+              const slot = rec.expand?.schicht_slot;
+              if (!slot) return null;
+              const tag = new Date(slot.datum).getDate();
+              const name = idToName[rec.hebamme] || "?";
+              const fallbackVon = slot.typ === "nachtdienst" || slot.typ === "bd_nacht" ? "19:00" : slot.typ === "anmeldung" ? "09:00" : "07:00";
+              const fallbackBis = slot.typ === "nachtdienst" || slot.typ === "bd_nacht" ? "07:00" : slot.typ === "anmeldung" ? "14:00" : "19:00";
+              return {
+                tag,
+                typ: slot.typ as SchichtTyp,
+                von: rec.zeit_von || fallbackVon,
+                bis: rec.zeit_bis || fallbackBis,
+                name,
+                wunschErfuellt: rec.wunsch_erfuellt,
+                erzwungen: !rec.wunsch_erfuellt,
+              };
+            })
+            .filter((z): z is NonNullable<typeof z> => z !== null);
+
+          // Reconstruct id map
+          const idMap: Record<string, string> = {};
+          for (const rec of zList) {
+            const slot = rec.expand?.schicht_slot;
+            if (!slot) continue;
+            const tag = new Date(slot.datum).getDate();
+            idMap[`${tag}|${slot.typ}`] = rec.id;
+          }
+          setZuweisungIdMap(idMap);
+
+          // Reconstruct konflikte from wishes
+          const konflikte: SolverKonflikt[] = zuweisungen
+            .filter((z) => z.erzwungen)
+            .map((z) => buildKonfliktFromWuensche(z, w, t, monatKey));
+
+          // WE distribution
+          const weVerteilung: Record<string, number> = {};
+          for (const z of zuweisungen) {
+            const dow = new Date(year, month, z.tag).getDay();
+            if (dow === 0 || dow === 6) {
+              weVerteilung[z.name] = (weVerteilung[z.name] || 0) + 1;
+            }
+          }
+
+          const dbStat = (p?.statistik || {}) as Partial<SolverResult["statistik"]>;
+          const anmeldungVerteilung: Record<string, number> = {};
+          for (const z of zuweisungen) {
+            if (z.typ === "anmeldung") anmeldungVerteilung[z.name] = (anmeldungVerteilung[z.name] || 0) + 1;
+          }
+          const statistik: SolverResult["statistik"] = {
+            totalSlots: dbStat.totalSlots ?? zuweisungen.length,
+            besetzt: zuweisungen.length,
+            wuenscheErfuellt: zuweisungen.filter((z) => z.wunschErfuellt).length,
+            erzwungen: zuweisungen.filter((z) => z.erzwungen).length,
+            weVerteilung: dbStat.weVerteilung ?? weVerteilung,
+            anmeldungVerteilung: dbStat.anmeldungVerteilung ?? anmeldungVerteilung,
+            zielVerfehlt: dbStat.zielVerfehlt ?? [],
+          };
+
+          setResult({ zuweisungen, konflikte, statistik });
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [monatKey, year]);
+  }, [monatKey, year, month]);
 
   const feiertageSet = useMemo(() => {
     const set = new Set<string>();
@@ -141,8 +213,26 @@ export default function AdminPage() {
     return feiertageSet.has(dateKey);
   };
 
+  const persistEdit = async (
+    tag: number,
+    typ: SchichtTyp,
+    payload: Parameters<typeof updateZuweisung>[1]
+  ) => {
+    const id = zuweisungIdMap[`${tag}|${typ}`];
+    if (!id) return; // plan not yet persisted – local state only
+    try {
+      await updateZuweisung(id, { ...payload, manuell_geaendert: true });
+      setEditPersistError(null);
+    } catch (err) {
+      console.error("persistEdit failed", err);
+      setEditPersistError("Änderung konnte nicht gespeichert werden");
+      setTimeout(() => setEditPersistError(null), 4000);
+    }
+  };
+
   const handleGenerate = () => {
     setGenerating(true);
+    setZuweisungIdMap({}); // re-generated plan invalidates persisted IDs
 
     const wuenscheMap: Record<string, Record<number, PersonWunsch>> = {};
     for (const member of team) {
@@ -189,13 +279,24 @@ export default function AdminPage() {
       };
     }
 
+    // Build ziele map per person (from any of their wishes for this month)
+    const ziele: Record<string, { dienste: number; anmeldungen: number }> = {};
+    for (const member of team) {
+      const w = allWuensche.find((x) => x.hebamme === member.id);
+      ziele[member.vorname] = {
+        dienste: w?.ziel_dienste ?? 0,
+        anmeldungen: w?.ziel_anmeldungen ?? 0,
+      };
+    }
+
     setTimeout(() => {
       const solverResult = solveDienstplan(
         year, month,
         wuenscheMap,
         team.map((t) => t.vorname),
         isAnmeldungTag,
-        isFeiertag
+        isFeiertag,
+        ziele
       );
       setResult(solverResult);
       setGenerating(false);
@@ -206,8 +307,11 @@ export default function AdminPage() {
         generiert_am: new Date().toISOString(),
         statistik: solverResult.statistik as Record<string, unknown>,
       }).catch(() => {});
+      setPlanStatus("generiert");
     }, 600);
   };
+
+  const isUnsavedDraft = result !== null && Object.keys(zuweisungIdMap).length === 0;
 
   const handlePersistAndRelease = async (releaseToAll: boolean) => {
     if (!result) return;
@@ -217,7 +321,7 @@ export default function AdminPage() {
       for (const m of team) namensMap[m.vorname] = m.id;
 
       const eintraege = result.zuweisungen.map((z) => ({
-        datum: `${year}-${String(month + 1).padStart(2, "0")}-${String(z.tag).padStart(2, "0")} 00:00:00.000Z`,
+        tag: z.tag,
         typ: z.typ,
         hebammeId: namensMap[z.name] || "",
         zeit_von: z.von,
@@ -227,7 +331,8 @@ export default function AdminPage() {
         ist_feiertag: isFeiertag(z.tag),
       })).filter((e) => e.hebammeId);
 
-      await saveZuweisungenMitSlots(monatKey, eintraege);
+      const idMap = await saveZuweisungenMitSlots(monatKey, eintraege);
+      setZuweisungIdMap(idMap);
       await saveDienstplan({
         monat: monatKey,
         status: releaseToAll ? "freigegeben" : "generiert",
@@ -282,18 +387,25 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {planStatus && (
+        {(planStatus || isUnsavedDraft) && (
           <div className={cn(
             "mb-4 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2",
-            planStatus === "freigegeben" ? "bg-emerald-500/15 ring-1 ring-emerald-400/30 text-emerald-300"
+            isUnsavedDraft ? "bg-orange-500/15 ring-1 ring-orange-400/30 text-orange-300"
+              : planStatus === "freigegeben" ? "bg-emerald-500/15 ring-1 ring-emerald-400/30 text-emerald-300"
               : planStatus === "generiert" ? "bg-amber-500/15 ring-1 ring-amber-400/30 text-amber-300"
               : "bg-white/5 text-white/40"
           )}>
             <div className={cn(
               "h-2 w-2 rounded-full",
-              planStatus === "freigegeben" ? "bg-emerald-400" : planStatus === "generiert" ? "bg-amber-400" : "bg-white/30"
+              isUnsavedDraft ? "bg-orange-400 animate-pulse"
+                : planStatus === "freigegeben" ? "bg-emerald-400"
+                : planStatus === "generiert" ? "bg-amber-400" : "bg-white/30"
             )} />
-            Plan-Status: {planStatus === "freigegeben" ? "Freigegeben" : planStatus === "generiert" ? "Entwurf (nur Admin sichtbar)" : planStatus}
+            {isUnsavedDraft
+              ? "Lokaler Entwurf – noch nicht gespeichert"
+              : planStatus === "freigegeben" ? "Plan-Status: Freigegeben"
+              : planStatus === "generiert" ? "Plan-Status: Entwurf (nur Admin sichtbar)"
+              : `Plan-Status: ${planStatus}`}
           </div>
         )}
 
@@ -431,6 +543,7 @@ export default function AdminPage() {
                       const count = result.zuweisungen.filter((z) => z.name === member.vorname).length;
                       const forced = erzwungenPro[member.vorname] || 0;
                       const we = result.statistik.weVerteilung[member.vorname] || 0;
+                      const an = result.statistik.anmeldungVerteilung?.[member.vorname] || 0;
                       const maxCount = Math.max(...team.map((t) => result.zuweisungen.filter((z) => z.name === t.vorname).length), 1);
                       return (
                         <div key={member.id} className="flex items-center gap-3">
@@ -439,12 +552,23 @@ export default function AdminPage() {
                             <div className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary/30" style={{ width: `${(count / maxCount) * 100}%` }} />
                           </div>
                           <span className="text-sm font-medium text-white/70 w-6 text-right">{count}</span>
-                          <span className="text-[10px] text-white/30 w-10 text-right">WE: {we}</span>
-                          {forced > 0 && <span className="text-[10px] text-amber-400/60 w-8 text-right">({forced}x)</span>}
+                          <span className="text-[10px] text-white/30 w-10 text-right">WE:{we}</span>
+                          <span className="text-[10px] text-white/30 w-10 text-right">An:{an}</span>
+                          {forced > 0 && <span className="text-[10px] text-amber-400/60 w-7 text-right">{forced}x</span>}
                         </div>
                       );
                     })}
                   </div>
+                  {result.statistik.zielVerfehlt && result.statistik.zielVerfehlt.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-white/5 space-y-1">
+                      <p className="text-xs text-amber-400/80 mb-1">Ziele verfehlt:</p>
+                      {result.statistik.zielVerfehlt.map((v, i) => (
+                        <p key={i} className="text-xs text-white/50">
+                          <span className="text-white/70">{v.name}</span> – {v.typ === "dienste" ? "Dienste" : "Anmeldungen"}: <span className="text-amber-300">{v.ist}</span> von <span className="text-white/40">{v.ziel}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </GlassCard>
 
                 <div className="space-y-3 mb-8">
@@ -485,6 +609,12 @@ export default function AdminPage() {
         <div className="h-8" />
       </main>
 
+      {editPersistError && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] rounded-xl bg-red-500/20 ring-1 ring-red-400/40 px-4 py-2 text-sm text-red-200 backdrop-blur-md">
+          {editPersistError}
+        </div>
+      )}
+
       {selectedKonflikt && (() => {
         const currentZ = result?.zuweisungen.find((a) => a.tag === selectedKonflikt.tag && a.typ === selectedKonflikt.typ);
         const dow = new Date(year, month, selectedKonflikt.tag).getDay();
@@ -502,7 +632,12 @@ export default function AdminPage() {
                   <h3 className="text-lg font-bold text-white">{WOCHENTAGE[dow]}, {selectedKonflikt.tag}. – {SCHICHT_LABELS[selectedKonflikt.typ]}</h3>
                   <button onClick={() => setSelectedKonflikt(null)} className="rounded-xl p-2 text-white/40 hover:text-white hover:bg-white/10"><X className="h-5 w-5" /></button>
                 </div>
-                <p className="text-sm text-amber-400/80 mb-5">{selectedKonflikt.problem}</p>
+                <p className="text-sm text-amber-400/80 mb-2">{selectedKonflikt.problem}</p>
+                <p className="text-xs text-white/40 mb-5">
+                  {Object.keys(zuweisungIdMap).length > 0
+                    ? "Änderungen werden direkt gespeichert."
+                    : "Plan ist noch nicht gespeichert – Änderungen erst nach „Speichern & freigeben“ persistent."}
+                </p>
 
                 {currentZ && (
                   <div className="mb-5 rounded-2xl bg-primary/10 ring-1 ring-primary/20 p-4">
@@ -514,14 +649,18 @@ export default function AdminPage() {
                     <div className="flex items-center gap-2">
                       <select value={currentZ.von} onChange={(e) => {
                         if (!result) return;
-                        setResult({ ...result, zuweisungen: result.zuweisungen.map((z) => z.tag === currentZ.tag && z.typ === currentZ.typ ? { ...z, von: e.target.value } : z) });
+                        const v = e.target.value;
+                        setResult({ ...result, zuweisungen: result.zuweisungen.map((z) => z.tag === currentZ.tag && z.typ === currentZ.typ ? { ...z, von: v } : z) });
+                        persistEdit(currentZ.tag, currentZ.typ, { zeit_von: v });
                       }} className="flex-1 rounded-lg bg-white/10 border-0 px-2 py-2 text-sm text-white font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-primary/50 text-center">
                         {Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i/2)).padStart(2,"0")}:${i%2===0?"00":"30"}`).map((z) => <option key={z} value={z} className="bg-gray-900 text-white">{z}</option>)}
                       </select>
                       <span className="text-white/20 text-sm">bis</span>
                       <select value={currentZ.bis} onChange={(e) => {
                         if (!result) return;
-                        setResult({ ...result, zuweisungen: result.zuweisungen.map((z) => z.tag === currentZ.tag && z.typ === currentZ.typ ? { ...z, bis: e.target.value } : z) });
+                        const v = e.target.value;
+                        setResult({ ...result, zuweisungen: result.zuweisungen.map((z) => z.tag === currentZ.tag && z.typ === currentZ.typ ? { ...z, bis: v } : z) });
+                        persistEdit(currentZ.tag, currentZ.typ, { zeit_bis: v });
                       }} className="flex-1 rounded-lg bg-white/10 border-0 px-2 py-2 text-sm text-white font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-primary/50 text-center">
                         {Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i/2)).padStart(2,"0")}:${i%2===0?"00":"30"}`).map((z) => <option key={z} value={z} className="bg-gray-900 text-white">{z}</option>)}
                       </select>
@@ -538,8 +677,16 @@ export default function AdminPage() {
                         return (
                           <button key={name} disabled={isCurrent} onClick={() => {
                             if (!result || !currentZ) return;
-                            const updated = result.zuweisungen.map((z) => z.tag === selectedKonflikt.tag && z.typ === selectedKonflikt.typ ? { ...z, name, wunschErfuellt: status === "verfuegbar", erzwungen: status !== "verfuegbar" } : z);
+                            const wunschErfuellt = status === "verfuegbar";
+                            const updated = result.zuweisungen.map((z) => z.tag === selectedKonflikt.tag && z.typ === selectedKonflikt.typ ? { ...z, name, wunschErfuellt, erzwungen: !wunschErfuellt } : z);
                             setResult({ ...result, zuweisungen: updated, statistik: { ...result.statistik, erzwungen: updated.filter((z) => z.erzwungen).length, wuenscheErfuellt: updated.filter((z) => z.wunschErfuellt).length } });
+                            const newHebammeId = team.find((m) => m.vorname === name)?.id;
+                            if (newHebammeId) {
+                              persistEdit(selectedKonflikt.tag, selectedKonflikt.typ, {
+                                hebammeId: newHebammeId,
+                                wunsch_erfuellt: wunschErfuellt,
+                              });
+                            }
                             setSelectedKonflikt(null);
                           }} className={cn("flex w-full items-center gap-3 rounded-xl px-4 py-3.5 transition-all active:scale-[0.98]",
                             isCurrent ? "bg-primary/15 ring-1 ring-primary/30 opacity-60" : status === "verfuegbar" ? "bg-emerald-500/10 hover:bg-emerald-500/15" : "bg-amber-500/10 hover:bg-amber-500/15"
@@ -659,6 +806,42 @@ function DrillSheet({
       </div>
     </div>
   );
+}
+
+function buildKonfliktFromWuensche(
+  z: SolverResult["zuweisungen"][number],
+  wuensche: Wunsch[],
+  team: Hebamme[],
+  monatKey: string
+): SolverKonflikt {
+  const dateStr = `${monatKey}-${String(z.tag).padStart(2, "0")}`;
+  const wuenscheForDay = wuensche.filter((w) => w.datum.startsWith(dateStr));
+  const verfuegbar: string[] = [];
+  const freiSchoen: string[] = [];
+  const freiWichtig: string[] = [];
+  const urlaub: string[] = [];
+  for (const w of wuenscheForDay) {
+    const m = team.find((x) => x.id === w.hebamme);
+    if (!m || m.vorname === z.name) continue;
+    if (w.ist_urlaub) urlaub.push(m.vorname);
+    else if (w.frei_wunsch === "wichtig") freiWichtig.push(m.vorname);
+    else if (w.frei_wunsch === "waere_schoen") freiSchoen.push(m.vorname);
+    else if ((w.dienste_json && w.dienste_json.length > 0) || (w.verfuegbar_fuer && w.verfuegbar_fuer.length > 0)) {
+      verfuegbar.push(m.vorname);
+    }
+  }
+  return {
+    tag: z.tag,
+    typ: z.typ,
+    problem: verfuegbar.length === 0
+      ? `Niemand wollte diese Schicht – ${z.name} eingeteilt`
+      : `${z.name} hatte lieber frei, wurde aber benötigt`,
+    schwere: verfuegbar.length === 0 ? "rot" : "gelb",
+    verfuegbar,
+    freiSchoen,
+    freiWichtig,
+    urlaub,
+  };
 }
 
 function exportPDF(result: SolverResult, year: number, month: number) {

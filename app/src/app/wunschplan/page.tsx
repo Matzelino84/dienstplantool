@@ -192,18 +192,24 @@ export default function WunschplanPage() {
     return map;
   }, [feiertage]);
 
-  // Pre-fill with user's fixed weekdays (settings)
+  // Pre-fill with user's fixed weekdays + specific dates (settings)
   const applyFixSettings = useCallback(
     (states: Record<number, DayStatus>, daysInM: number) => {
       const settings = user?.settings;
       if (!settings) return states;
-      const blocked = settings.fix_blocked_weekdays || [];
-      const frei = settings.fix_frei_weekdays || [];
+      const blockedWd = settings.fix_blocked_weekdays || [];
+      const freiWd = settings.fix_frei_weekdays || [];
+      const blockedDates = new Set(settings.fix_blocked_dates || []);
+      const freiDates = new Set(settings.fix_frei_dates || []);
       for (let d = 1; d <= daysInM; d++) {
         if (states[d]) continue; // explicit user choice has priority
+        const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        // Specific dates win over weekday patterns
+        if (blockedDates.has(dateKey)) { states[d] = "urlaub"; continue; }
+        if (freiDates.has(dateKey)) { states[d] = "frei_schoen"; continue; }
         const dow = new Date(year, month, d).getDay();
-        if (blocked.includes(dow)) states[d] = "urlaub";
-        else if (frei.includes(dow)) states[d] = "frei_schoen";
+        if (blockedWd.includes(dow)) states[d] = "urlaub";
+        else if (freiWd.includes(dow)) states[d] = "frei_schoen";
       }
       return states;
     },
