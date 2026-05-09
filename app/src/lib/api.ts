@@ -106,7 +106,8 @@ export async function saveWuenscheBulk(
   hebammeId: string,
   monat: string,
   wuensche: WunschBulkEintrag[],
-  zielDienste: number,
+  zielDiensteMin: number,
+  zielDiensteMax: number,
   zielAnmeldungen: number
 ): Promise<void> {
   const existing = await getWuensche(monat, hebammeId);
@@ -122,13 +123,27 @@ export async function saveWuenscheBulk(
       verfuegbar_fuer: w.verfuegbar_fuer,
       frei_wunsch: w.frei_wunsch || "",
       ist_urlaub: w.ist_urlaub,
-      ziel_dienste: zielDienste,
+      ziel_dienste: zielDiensteMax, // legacy field – keep equal to max
+      ziel_dienste_min: zielDiensteMin,
+      ziel_dienste_max: zielDiensteMax,
       ziel_anmeldungen: zielAnmeldungen,
       zeit_von: w.dienste[0]?.zeit_von || "",
       zeit_bis: w.dienste[0]?.zeit_bis || "",
       dienste_json: w.dienste,
     });
   }
+}
+
+export async function changeMyPin(
+  userId: string,
+  oldPin: string,
+  newPin: string
+): Promise<void> {
+  await pb.collection("hebammen").update(userId, {
+    oldPassword: oldPin,
+    password: newPin,
+    passwordConfirm: newPin,
+  });
 }
 
 // ===== SCHICHT SLOTS =====
@@ -175,6 +190,7 @@ export async function getZuweisungen(monat: string): Promise<Zuweisung[]> {
 
 export async function saveZuweisungenMitSlots(
   monat: string,
+  expectedSlots: { tag: number; typ: SchichtTyp; ist_feiertag?: boolean }[],
   eintraege: {
     tag: number;
     typ: SchichtTyp;
@@ -183,21 +199,29 @@ export async function saveZuweisungenMitSlots(
     zeit_bis: string;
     wunsch_erfuellt: boolean;
     manuell_geaendert: boolean;
-    ist_feiertag?: boolean;
   }[]
-): Promise<Record<string, string>> {
+): Promise<{ slotIdMap: Record<string, string>; zuweisungIdMap: Record<string, string> }> {
+  // Wipe existing zuweisungen + slots for this month, then re-create everything.
   const oldZ = await getZuweisungen(monat);
-  for (const z of oldZ) {
-    await pb.collection("zuweisungen").delete(z.id);
-  }
+  for (const z of oldZ) await pb.collection("zuweisungen").delete(z.id);
+  const oldSlots = await getSchichtSlots(monat);
+  for (const s of oldSlots) await pb.collection("schicht_slots").delete(s.id);
+
   const datumOf = (tag: number) => `${monat}-${String(tag).padStart(2, "0")} 00:00:00.000Z`;
-  const slotMap = await ensureSchichtSlots(
-    monat,
-    eintraege.map((e) => ({ datum: datumOf(e.tag), typ: e.typ, ist_feiertag: e.ist_feiertag }))
-  );
-  const idMap: Record<string, string> = {};
+  const slotIdMap: Record<string, string> = {};
+  for (const s of expectedSlots) {
+    const rec = await pb.collection("schicht_slots").create({
+      datum: datumOf(s.tag),
+      typ: s.typ,
+      ist_feiertag: s.ist_feiertag || false,
+      monat,
+    });
+    slotIdMap[`${s.tag}|${s.typ}`] = rec.id;
+  }
+
+  const zuweisungIdMap: Record<string, string> = {};
   for (const e of eintraege) {
-    const slotId = slotMap[`${datumOf(e.tag)}|${e.typ}`];
+    const slotId = slotIdMap[`${e.tag}|${e.typ}`];
     if (!slotId) continue;
     const rec = await pb.collection("zuweisungen").create({
       hebamme: e.hebammeId,
@@ -208,9 +232,9 @@ export async function saveZuweisungenMitSlots(
       zeit_von: e.zeit_von,
       zeit_bis: e.zeit_bis,
     });
-    idMap[`${e.tag}|${e.typ}`] = rec.id;
+    zuweisungIdMap[`${e.tag}|${e.typ}`] = rec.id;
   }
-  return idMap;
+  return { slotIdMap, zuweisungIdMap };
 }
 
 export async function updateZuweisung(
@@ -230,6 +254,31 @@ export async function updateZuweisung(
   if (data.wunsch_erfuellt !== undefined) payload.wunsch_erfuellt = data.wunsch_erfuellt;
   if (data.manuell_geaendert !== undefined) payload.manuell_geaendert = data.manuell_geaendert;
   await pb.collection("zuweisungen").update(recordId, payload);
+}
+
+export async function deleteZuweisung(recordId: string): Promise<void> {
+  await pb.collection("zuweisungen").delete(recordId);
+}
+
+export async function createZuweisung(data: {
+  monat: string;
+  schichtSlotId: string;
+  hebammeId: string;
+  zeit_von: string;
+  zeit_bis: string;
+  wunsch_erfuellt: boolean;
+  manuell_geaendert: boolean;
+}): Promise<{ id: string }> {
+  const rec = await pb.collection("zuweisungen").create({
+    hebamme: data.hebammeId,
+    schicht_slot: data.schichtSlotId,
+    monat: data.monat,
+    wunsch_erfuellt: data.wunsch_erfuellt,
+    manuell_geaendert: data.manuell_geaendert,
+    zeit_von: data.zeit_von,
+    zeit_bis: data.zeit_bis,
+  });
+  return { id: rec.id };
 }
 
 // ===== DIENSTPLAENE =====

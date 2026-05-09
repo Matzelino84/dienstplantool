@@ -91,7 +91,7 @@ export function solveDienstplan(
   teamNames: string[],
   isAnmeldungTag: (day: number) => boolean,
   isFeiertag: (day: number) => boolean = () => false,
-  ziele: Record<string, { dienste: number; anmeldungen: number }> = {}
+  ziele: Record<string, { dienste_min: number; dienste_max: number; anmeldungen: number }> = {}
 ): SolverResult {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const zuweisungen: SlotZuweisung[] = [];
@@ -104,6 +104,7 @@ export function solveDienstplan(
   const weCount: Record<string, number> = {};
   const anmeldungCount: Record<string, number> = {};
   const nurBdsWeekdays: Record<string, Set<number>> = {}; // for diversifying BDs across weekdays for "nur_bds" people
+  const lastDayPerType: Record<string, Partial<Record<SchichtTyp, number>>> = {}; // tracks last day each type was assigned per person
 
   for (const name of teamNames) {
     assignCount[name] = 0;
@@ -113,7 +114,10 @@ export function solveDienstplan(
     weCount[name] = 0;
     anmeldungCount[name] = 0;
     nurBdsWeekdays[name] = new Set();
+    lastDayPerType[name] = {};
   }
+
+  const isBackToBackBlocked = (typ: SchichtTyp) => typ === "tagdienst" || typ === "nachtdienst" || typ === "anmeldung";
 
   // Build all required slots for the month
   const allSlots: SlotBedarf[] = [];
@@ -230,11 +234,21 @@ export function solveDienstplan(
       // Balance: more assignments = lower priority
       priority += (assignCount[name] || 0) * 10;
 
-      // ziel_dienste soft cap (#4)
-      const ziel = ziele[name]?.dienste ?? 0;
-      if (ziel > 0) {
-        if (assignCount[name] >= ziel) priority += 400;
-        else if (assignCount[name] >= ziel - 1) priority += 100;
+      // 2-day same-shift constraint (no two TD/ND/Anmeldung on consecutive days)
+      if (isBackToBackBlocked(slot.typ)) {
+        const lastDay = lastDayPerType[name]?.[slot.typ];
+        if (lastDay !== undefined && lastDay === slot.tag - 1) priority += 1500; // hard penalty
+      }
+
+      // ziel_dienste range (#4 + range): bevorzugt Min-Anstreben, gegen Max wehren
+      const z = ziele[name];
+      if (z && (z.dienste_min > 0 || z.dienste_max > 0)) {
+        const cnt = assignCount[name];
+        const min = z.dienste_min || 0;
+        const max = z.dienste_max || min;
+        if (cnt < min) priority -= 200; // boost: hat noch nicht Min erreicht
+        else if (cnt < max) priority += (cnt - min + 1) * 30; // sanft ansteigend Richtung Max
+        else priority += 600; // Max erreicht – nur wenn keiner besser
       }
 
       // TD/ND balance: prefer the underrepresented side
@@ -363,6 +377,11 @@ export function solveDienstplan(
     if (slot.typ === "anmeldung") anmeldungCount[chosen.name]++;
     if (dayIsWE) weCount[chosen.name]++;
 
+    // Track last day per type for back-to-back constraint
+    if (lastDayPerType[chosen.name]) {
+      lastDayPerType[chosen.name][slot.typ] = slot.tag;
+    }
+
     // Track BD weekdays for "nur_bds" diversity (#6)
     const chosenSettings = wuensche[chosen.name]?.[slot.tag]?.settings;
     if (chosenSettings?.nur_bds && isBdTyp(slot.typ)) {
@@ -376,8 +395,13 @@ export function solveDienstplan(
   for (const name of teamNames) {
     const z = ziele[name];
     if (!z) continue;
-    if (z.dienste > 0 && Math.abs(assignCount[name] - z.dienste) > 2) {
-      zielVerfehlt.push({ name, ziel: z.dienste, ist: assignCount[name], typ: "dienste" });
+    const cnt = assignCount[name];
+    const min = z.dienste_min || 0;
+    const max = z.dienste_max || min;
+    if (min > 0 && cnt < min) {
+      zielVerfehlt.push({ name, ziel: min, ist: cnt, typ: "dienste" });
+    } else if (max > 0 && cnt > max) {
+      zielVerfehlt.push({ name, ziel: max, ist: cnt, typ: "dienste" });
     }
     const settings = wuensche[name]?.[1]?.settings || {};
     if (z.anmeldungen > 0 && !settings.keine_anmeldung && anmeldungCount[name] < z.anmeldungen) {

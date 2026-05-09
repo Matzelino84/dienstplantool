@@ -19,6 +19,8 @@ import {
   saveDienstplan,
   saveZuweisungenMitSlots,
   updateZuweisung,
+  deleteZuweisung,
+  createZuweisung,
   getDienstplan,
   getZuweisungen,
   getFeiertage,
@@ -44,6 +46,12 @@ import {
   TrendingUp,
   Printer,
   Eye,
+  Trash2,
+  Sun,
+  Moon,
+  Clock,
+  FileText,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import jsPDF from "jspdf";
@@ -83,6 +91,7 @@ export default function AdminPage() {
   const [selectedKonflikt, setSelectedKonflikt] = useState<SolverKonflikt | null>(null);
   const [drillMember, setDrillMember] = useState<Hebamme | null>(null);
   const [zuweisungIdMap, setZuweisungIdMap] = useState<Record<string, string>>({});
+  const [slotIdMap, setSlotIdMap] = useState<Record<string, string>>({});
   const [editPersistError, setEditPersistError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,6 +102,7 @@ export default function AdminPage() {
     setLoading(true);
     setResult(null);
     setZuweisungIdMap({});
+    setSlotIdMap({});
     Promise.all([
       getTeam(),
       getWuensche(monatKey),
@@ -130,15 +140,18 @@ export default function AdminPage() {
             })
             .filter((z): z is NonNullable<typeof z> => z !== null);
 
-          // Reconstruct id map
+          // Reconstruct zuweisung + slot id maps
           const idMap: Record<string, string> = {};
+          const sMap: Record<string, string> = {};
           for (const rec of zList) {
             const slot = rec.expand?.schicht_slot;
             if (!slot) continue;
             const tag = new Date(slot.datum).getDate();
             idMap[`${tag}|${slot.typ}`] = rec.id;
+            sMap[`${tag}|${slot.typ}`] = slot.id;
           }
           setZuweisungIdMap(idMap);
+          setSlotIdMap(sMap);
 
           // Reconstruct konflikte from wishes
           const konflikte: SolverKonflikt[] = zuweisungen
@@ -230,9 +243,124 @@ export default function AdminPage() {
     }
   };
 
+  const recomputeStatistik = (zuweisungen: SolverResult["zuweisungen"]): SolverResult["statistik"] => {
+    const we: Record<string, number> = {};
+    const an: Record<string, number> = {};
+    for (const z of zuweisungen) {
+      const dow = new Date(year, month, z.tag).getDay();
+      if (dow === 0 || dow === 6) we[z.name] = (we[z.name] || 0) + 1;
+      if (z.typ === "anmeldung") an[z.name] = (an[z.name] || 0) + 1;
+    }
+    return {
+      totalSlots: result?.statistik.totalSlots ?? zuweisungen.length,
+      besetzt: zuweisungen.length,
+      wuenscheErfuellt: zuweisungen.filter((z) => z.wunschErfuellt).length,
+      erzwungen: zuweisungen.filter((z) => z.erzwungen).length,
+      weVerteilung: we,
+      anmeldungVerteilung: an,
+      zielVerfehlt: result?.statistik.zielVerfehlt ?? [],
+    };
+  };
+
+  const swapPerson = async (tag: number, typ: SchichtTyp, newName: string) => {
+    if (!result) return;
+    const newHebammeId = team.find((m) => m.vorname === newName)?.id;
+    if (!newHebammeId) return;
+
+    const existing = result.zuweisungen.find((z) => z.tag === tag && z.typ === typ);
+    const wunschErfuellt = checkWunschErfuellt(newName, tag, typ);
+    const fallbackVon = typ === "nachtdienst" || typ === "bd_nacht" ? "19:00" : typ === "anmeldung" ? "09:00" : "07:00";
+    const fallbackBis = typ === "nachtdienst" || typ === "bd_nacht" ? "07:00" : typ === "anmeldung" ? "14:00" : "19:00";
+
+    let updated;
+    if (existing) {
+      updated = result.zuweisungen.map((z) => z.tag === tag && z.typ === typ ? { ...z, name: newName, wunschErfuellt, erzwungen: !wunschErfuellt } : z);
+    } else {
+      updated = [...result.zuweisungen, { tag, typ, name: newName, von: fallbackVon, bis: fallbackBis, wunschErfuellt, erzwungen: !wunschErfuellt }];
+    }
+    setResult({ ...result, zuweisungen: updated, statistik: recomputeStatistik(updated) });
+
+    // persist
+    const key = `${tag}|${typ}`;
+    const slotId = slotIdMap[key];
+    if (!slotId) return; // local-only mode
+    try {
+      const existingId = zuweisungIdMap[key];
+      if (existingId) {
+        await updateZuweisung(existingId, {
+          hebammeId: newHebammeId,
+          wunsch_erfuellt: wunschErfuellt,
+          manuell_geaendert: true,
+        });
+      } else {
+        const { id } = await createZuweisung({
+          monat: monatKey,
+          schichtSlotId: slotId,
+          hebammeId: newHebammeId,
+          zeit_von: existing?.von || fallbackVon,
+          zeit_bis: existing?.bis || fallbackBis,
+          wunsch_erfuellt: wunschErfuellt,
+          manuell_geaendert: true,
+        });
+        setZuweisungIdMap((prev) => ({ ...prev, [key]: id }));
+      }
+      setEditPersistError(null);
+    } catch (err) {
+      console.error("swapPerson persist failed", err);
+      setEditPersistError("Tausch konnte nicht gespeichert werden");
+      setTimeout(() => setEditPersistError(null), 4000);
+    }
+  };
+
+  const clearSlot = async (tag: number, typ: SchichtTyp) => {
+    if (!result) return;
+    const updated = result.zuweisungen.filter((z) => !(z.tag === tag && z.typ === typ));
+    setResult({ ...result, zuweisungen: updated, statistik: recomputeStatistik(updated) });
+
+    const key = `${tag}|${typ}`;
+    const id = zuweisungIdMap[key];
+    if (!id) return; // not persisted
+    try {
+      await deleteZuweisung(id);
+      setZuweisungIdMap((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      setEditPersistError(null);
+    } catch (err) {
+      console.error("clearSlot persist failed", err);
+      setEditPersistError("Slot konnte nicht geleert werden");
+      setTimeout(() => setEditPersistError(null), 4000);
+    }
+  };
+
+  const checkWunschErfuellt = (name: string, tag: number, typ: SchichtTyp): boolean => {
+    const member = team.find((m) => m.vorname === name);
+    if (!member) return false;
+    const dateStr = `${monatKey}-${String(tag).padStart(2, "0")}`;
+    const w = allWuensche.find((x) => x.hebamme === member.id && x.datum.startsWith(dateStr));
+    if (!w) return false;
+    if (w.ist_urlaub || w.frei_wunsch === "wichtig" || w.frei_wunsch === "waere_schoen") return false;
+    if (w.dienste_json && w.dienste_json.length > 0) {
+      return w.dienste_json.some((d) => d.typ === typ);
+    }
+    if (w.verfuegbar_fuer && w.verfuegbar_fuer.length > 0) {
+      return w.verfuegbar_fuer.includes(typ) || w.verfuegbar_fuer.includes("alle");
+    }
+    return false;
+  };
+
+  const expectedSlotTypes = (day: number): SchichtTyp[] => {
+    const arr: SchichtTyp[] = ["tagdienst", "nachtdienst", "bd_tag", "bd_nacht"];
+    if (isAnmeldungTag(day)) arr.push("anmeldung");
+    return arr;
+  };
+
   const handleGenerate = () => {
     setGenerating(true);
     setZuweisungIdMap({}); // re-generated plan invalidates persisted IDs
+    setSlotIdMap({});
 
     const wuenscheMap: Record<string, Record<number, PersonWunsch>> = {};
     for (const member of team) {
@@ -280,11 +408,14 @@ export default function AdminPage() {
     }
 
     // Build ziele map per person (from any of their wishes for this month)
-    const ziele: Record<string, { dienste: number; anmeldungen: number }> = {};
+    const ziele: Record<string, { dienste_min: number; dienste_max: number; anmeldungen: number }> = {};
     for (const member of team) {
       const w = allWuensche.find((x) => x.hebamme === member.id);
+      const max = w?.ziel_dienste_max ?? w?.ziel_dienste ?? 0;
+      const min = w?.ziel_dienste_min ?? Math.max(0, max - 2);
       ziele[member.vorname] = {
-        dienste: w?.ziel_dienste ?? 0,
+        dienste_min: min,
+        dienste_max: max,
         anmeldungen: w?.ziel_anmeldungen ?? 0,
       };
     }
@@ -328,11 +459,19 @@ export default function AdminPage() {
         zeit_bis: z.bis,
         wunsch_erfuellt: z.wunschErfuellt,
         manuell_geaendert: false,
-        ist_feiertag: isFeiertag(z.tag),
       })).filter((e) => e.hebammeId);
 
-      const idMap = await saveZuweisungenMitSlots(monatKey, eintraege);
-      setZuweisungIdMap(idMap);
+      // Build expected slots: every day gets the standard 4 plus anmeldung where applicable.
+      const expectedSlots: { tag: number; typ: SchichtTyp; ist_feiertag?: boolean }[] = [];
+      for (let day = 1; day <= daysInMonth; day++) {
+        for (const typ of expectedSlotTypes(day)) {
+          expectedSlots.push({ tag: day, typ, ist_feiertag: isFeiertag(day) });
+        }
+      }
+
+      const { slotIdMap: sMap, zuweisungIdMap: zMap } = await saveZuweisungenMitSlots(monatKey, expectedSlots, eintraege);
+      setSlotIdMap(sMap);
+      setZuweisungIdMap(zMap);
       await saveDienstplan({
         monat: monatKey,
         status: releaseToAll ? "freigegeben" : "generiert",
@@ -571,6 +710,55 @@ export default function AdminPage() {
                   )}
                 </GlassCard>
 
+                <GlassCard className="mb-6">
+                  <h2 className="text-base font-semibold text-white mb-3">Plan bearbeiten</h2>
+                  <p className="text-xs text-white/40 mb-3">
+                    Person wechseln per Dropdown · 🗑 entfernt die Zuweisung (Slot bleibt leer).
+                    {Object.keys(slotIdMap).length === 0 && " Änderungen sind lokal bis zum nächsten Speichern."}
+                  </p>
+                  <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+                      const types = expectedSlotTypes(day);
+                      const dow = WOCHENTAGE[new Date(year, month, day).getDay()];
+                      const isWE = [0, 6].includes(new Date(year, month, day).getDay());
+                      return (
+                        <div key={day} className={cn("rounded-xl p-3", isWE ? "bg-white/[0.02]" : "bg-white/[0.04]")}>
+                          <p className={cn("text-xs font-semibold mb-2", isWE ? "text-white/40" : "text-white/65")}>
+                            {dow} {day}.{isFeiertag(day) && <span className="ml-2 text-amber-400/70">Feiertag</span>}
+                          </p>
+                          <div className="space-y-1.5">
+                            {types.map((typ) => {
+                              const z = result.zuweisungen.find((x) => x.tag === day && x.typ === typ);
+                              return (
+                                <SlotEditor
+                                  key={typ}
+                                  tag={day}
+                                  typ={typ}
+                                  zuweisung={z}
+                                  team={team}
+                                  farbenMap={farbenMap}
+                                  onSwap={swapPerson}
+                                  onClear={clearSlot}
+                                  onTimeEdit={(field, val) => {
+                                    if (!result || !z) return;
+                                    setResult({
+                                      ...result,
+                                      zuweisungen: result.zuweisungen.map((x) =>
+                                        x.tag === day && x.typ === typ ? { ...x, [field === "von" ? "von" : "bis"]: val } : x
+                                      ),
+                                    });
+                                    persistEdit(day, typ, field === "von" ? { zeit_von: val } : { zeit_bis: val });
+                                  }}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </GlassCard>
+
                 <div className="space-y-3 mb-8">
                   <a href="/dienstplan" className="w-full flex items-center justify-center gap-2 rounded-2xl glass py-4 text-base font-semibold text-white transition-glass glass-hover">
                     Plan ansehen
@@ -803,6 +991,116 @@ function DrillSheet({
             })}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+const SLOT_ICONS: Record<SchichtTyp, LucideIcon> = {
+  tagdienst: Sun,
+  nachtdienst: Moon,
+  bd_tag: Clock,
+  bd_nacht: Clock,
+  anmeldung: FileText,
+};
+
+const SLOT_FARBEN: Record<SchichtTyp, string> = {
+  tagdienst: "text-amber-300",
+  nachtdienst: "text-indigo-300",
+  bd_tag: "text-sky-300",
+  bd_nacht: "text-blue-300",
+  anmeldung: "text-emerald-300",
+};
+
+const ZEIT_OPTIONEN_ALL = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 === 0 ? "00" : "30"}`);
+
+function SlotEditor({
+  tag,
+  typ,
+  zuweisung,
+  team,
+  farbenMap,
+  onSwap,
+  onClear,
+  onTimeEdit,
+}: {
+  tag: number;
+  typ: SchichtTyp;
+  zuweisung: SolverResult["zuweisungen"][number] | undefined;
+  team: Hebamme[];
+  farbenMap: Record<string, string>;
+  onSwap: (tag: number, typ: SchichtTyp, name: string) => void;
+  onClear: (tag: number, typ: SchichtTyp) => void;
+  onTimeEdit: (field: "von" | "bis", val: string) => void;
+}) {
+  const Icon = SLOT_ICONS[typ];
+  const isEmpty = !zuweisung;
+  const fallbackVon = typ === "nachtdienst" || typ === "bd_nacht" ? "19:00" : typ === "anmeldung" ? "09:00" : "07:00";
+  const fallbackBis = typ === "nachtdienst" || typ === "bd_nacht" ? "07:00" : typ === "anmeldung" ? "14:00" : "19:00";
+
+  return (
+    <div className={cn(
+      "flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5",
+      isEmpty ? "bg-red-500/8 ring-1 ring-red-400/20" : zuweisung.erzwungen ? "bg-amber-500/8" : "bg-white/[0.02]"
+    )}>
+      <Icon className={cn("h-3.5 w-3.5 shrink-0", SLOT_FARBEN[typ])} />
+      <span className="text-[11px] text-white/40 w-16 shrink-0">{SCHICHT_LABELS[typ]}</span>
+
+      {/* Person dropdown */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        {!isEmpty && (
+          <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: farbenMap[zuweisung.name] || "#666" }} />
+        )}
+        <select
+          value={zuweisung?.name || ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "") onClear(tag, typ);
+            else onSwap(tag, typ, v);
+          }}
+          className={cn(
+            "rounded-md bg-white/10 px-2 py-1 text-xs font-medium text-white border-0 focus:outline-none focus:ring-2 focus:ring-primary/50 max-w-[120px]",
+            isEmpty && "text-red-300/80"
+          )}
+        >
+          <option value="" className="bg-gray-900 text-red-300">— Leer —</option>
+          {team.map((m) => (
+            <option key={m.id} value={m.vorname} className="bg-gray-900 text-white">
+              {m.vorname}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Time */}
+      <div className="flex items-center gap-1 ml-auto">
+        <select
+          value={zuweisung?.von || fallbackVon}
+          disabled={isEmpty}
+          onChange={(e) => onTimeEdit("von", e.target.value)}
+          className="rounded-md bg-white/10 px-1.5 py-1 text-[11px] font-mono text-white border-0 disabled:opacity-30 focus:outline-none focus:ring-1 focus:ring-primary/50"
+        >
+          {ZEIT_OPTIONEN_ALL.map((z) => <option key={z} value={z} className="bg-gray-900">{z}</option>)}
+        </select>
+        <span className="text-white/20 text-[10px]">–</span>
+        <select
+          value={zuweisung?.bis || fallbackBis}
+          disabled={isEmpty}
+          onChange={(e) => onTimeEdit("bis", e.target.value)}
+          className="rounded-md bg-white/10 px-1.5 py-1 text-[11px] font-mono text-white border-0 disabled:opacity-30 focus:outline-none focus:ring-1 focus:ring-primary/50"
+        >
+          {ZEIT_OPTIONEN_ALL.map((z) => <option key={z} value={z} className="bg-gray-900">{z}</option>)}
+        </select>
+
+        {!isEmpty && (
+          <button
+            onClick={() => onClear(tag, typ)}
+            className="rounded-md p-1 text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-glass"
+            title="Slot leeren"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
     </div>
   );

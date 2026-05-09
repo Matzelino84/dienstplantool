@@ -69,7 +69,9 @@ export interface Wunsch {
   verfuegbar_fuer: VerfuegbarFuer[];
   frei_wunsch: FreiWunsch | null;
   ist_urlaub: boolean;
-  ziel_dienste: number;
+  ziel_dienste: number; // legacy / fallback for max
+  ziel_dienste_min?: number;
+  ziel_dienste_max?: number;
   ziel_anmeldungen: number;
   besonderheiten: string;
   zeit_von: string;

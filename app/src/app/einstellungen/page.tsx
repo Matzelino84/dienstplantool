@@ -10,6 +10,7 @@ import {
   getFeiertage,
   createFeiertag,
   deleteFeiertag,
+  changeMyPin,
 } from "@/lib/api";
 import type { HebammeSettings, Feiertag } from "@/lib/types";
 import {
@@ -26,6 +27,7 @@ import {
   Calendar,
   CalendarOff,
   Check,
+  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +48,11 @@ export default function EinstellungenPage() {
   const [saved, setSaved] = useState(false);
 
   const [feiertage, setFeiertage] = useState<Feiertag[]>([]);
+  const [oldPin, setOldPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [newPinConfirm, setNewPinConfirm] = useState("");
+  const [pinSaving, setPinSaving] = useState(false);
+  const [pinMsg, setPinMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [showAddFeiertag, setShowAddFeiertag] = useState(false);
   const [newFeiertagDatum, setNewFeiertagDatum] = useState("");
   const [newFeiertagName, setNewFeiertagName] = useState("");
@@ -73,16 +80,28 @@ export default function EinstellungenPage() {
     setSettings({ ...settings, [key]: value });
   };
 
-  const addFixDate = (key: "fix_blocked_dates" | "fix_frei_dates", date: string) => {
-    if (!date) return;
+  const addFixDateRange = (key: "fix_blocked_dates" | "fix_frei_dates", from: string, to?: string) => {
+    if (!from) return;
     const arr = settings[key] || [];
-    if (arr.includes(date)) return;
-    const next = [...arr, date].sort();
+    const dates: string[] = [];
+    if (!to || to === from) {
+      dates.push(from);
+    } else {
+      const start = new Date(from + "T00:00:00");
+      const end = new Date(to + "T00:00:00");
+      const [a, b] = start <= end ? [start, end] : [end, start];
+      const cur = new Date(a);
+      while (cur <= b) {
+        dates.push(cur.toISOString().slice(0, 10));
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+    const next = Array.from(new Set([...arr, ...dates])).sort();
     setSettings({ ...settings, [key]: next });
   };
 
-  const removeFixDate = (key: "fix_blocked_dates" | "fix_frei_dates", date: string) => {
-    const arr = (settings[key] || []).filter((d) => d !== date);
+  const removeFixDates = (key: "fix_blocked_dates" | "fix_frei_dates", datesToRemove: string[]) => {
+    const arr = (settings[key] || []).filter((d) => !datesToRemove.includes(d));
     setSettings({ ...settings, [key]: arr });
   };
 
@@ -96,6 +115,26 @@ export default function EinstellungenPage() {
       setTimeout(() => setSaved(false), 2500);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleChangePin = async () => {
+    if (!user) return;
+    if (oldPin.length < 4) { setPinMsg({ kind: "err", text: "Alte PIN muss mindestens 4 Stellen haben" }); return; }
+    if (newPin.length < 4) { setPinMsg({ kind: "err", text: "Neue PIN muss mindestens 4 Stellen haben" }); return; }
+    if (newPin !== newPinConfirm) { setPinMsg({ kind: "err", text: "Bestätigung stimmt nicht" }); return; }
+    setPinSaving(true);
+    setPinMsg(null);
+    try {
+      await changeMyPin(user.id, oldPin, newPin);
+      setPinMsg({ kind: "ok", text: "PIN geändert" });
+      setOldPin(""); setNewPin(""); setNewPinConfirm("");
+      setTimeout(() => setPinMsg(null), 3000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Fehler";
+      setPinMsg({ kind: "err", text: msg.includes("oldPassword") || msg.includes("validation") ? "Alte PIN falsch" : msg });
+    } finally {
+      setPinSaving(false);
     }
   };
 
@@ -199,17 +238,17 @@ export default function EinstellungenPage() {
             </p>
 
             <DateAdder
-              label="Sperr-Tag (Urlaub)"
+              label="Sperr-Tag(e) (Urlaub)"
               accent="red"
-              onAdd={(d) => addFixDate("fix_blocked_dates", d)}
+              onAdd={(from, to) => addFixDateRange("fix_blocked_dates", from, to)}
             />
             {(settings.fix_blocked_dates?.length ?? 0) > 0 && (
               <div className="mt-2 space-y-1 mb-3">
-                {(settings.fix_blocked_dates || []).map((d) => (
-                  <div key={d} className="flex items-center gap-2 rounded-lg bg-red-500/10 ring-1 ring-red-400/20 px-3 py-1.5">
+                {groupConsecutive(settings.fix_blocked_dates || []).map((g) => (
+                  <div key={g.start} className="flex items-center gap-2 rounded-lg bg-red-500/10 ring-1 ring-red-400/20 px-3 py-1.5">
                     <Lock className="h-3 w-3 text-red-300" />
-                    <span className="text-xs text-red-200 flex-1 font-mono">{d}</span>
-                    <button onClick={() => removeFixDate("fix_blocked_dates", d)} className="rounded p-1 text-red-300/70 hover:text-red-200">
+                    <span className="text-xs text-red-200 flex-1 font-mono">{formatRange(g)}</span>
+                    <button onClick={() => removeFixDates("fix_blocked_dates", expandRange(g))} className="rounded p-1 text-red-300/70 hover:text-red-200">
                       <Trash2 className="h-3 w-3" />
                     </button>
                   </div>
@@ -219,18 +258,18 @@ export default function EinstellungenPage() {
 
             <div className="mt-4">
               <DateAdder
-                label="Lieber-frei-Tag"
+                label="Lieber-frei-Tag(e)"
                 accent="amber"
-                onAdd={(d) => addFixDate("fix_frei_dates", d)}
+                onAdd={(from, to) => addFixDateRange("fix_frei_dates", from, to)}
               />
             </div>
             {(settings.fix_frei_dates?.length ?? 0) > 0 && (
               <div className="mt-2 space-y-1">
-                {(settings.fix_frei_dates || []).map((d) => (
-                  <div key={d} className="flex items-center gap-2 rounded-lg bg-amber-500/10 ring-1 ring-amber-400/20 px-3 py-1.5">
+                {groupConsecutive(settings.fix_frei_dates || []).map((g) => (
+                  <div key={g.start} className="flex items-center gap-2 rounded-lg bg-amber-500/10 ring-1 ring-amber-400/20 px-3 py-1.5">
                     <Heart className="h-3 w-3 text-amber-300" />
-                    <span className="text-xs text-amber-200 flex-1 font-mono">{d}</span>
-                    <button onClick={() => removeFixDate("fix_frei_dates", d)} className="rounded p-1 text-amber-300/70 hover:text-amber-200">
+                    <span className="text-xs text-amber-200 flex-1 font-mono">{formatRange(g)}</span>
+                    <button onClick={() => removeFixDates("fix_frei_dates", expandRange(g))} className="rounded p-1 text-amber-300/70 hover:text-amber-200">
                       <Trash2 className="h-3 w-3" />
                     </button>
                   </div>
@@ -327,6 +366,59 @@ export default function EinstellungenPage() {
               <>Einstellungen speichern</>
             )}
           </button>
+
+          <GlassCard className="mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <KeyRound className="h-4 w-4 text-primary" />
+              <h2 className="text-base font-semibold text-white">PIN ändern</h2>
+            </div>
+            <p className="text-xs text-white/40 mb-4">Mind. 4 Stellen. Standard-PIN bei neuen Personen ist <code className="bg-white/5 px-1 rounded">1234</code>.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-white/50 block mb-1">Alte PIN</label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={8}
+                  value={oldPin}
+                  onChange={(e) => setOldPin(e.target.value.replace(/\D/g, ""))}
+                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-base font-mono text-white tracking-[0.3em] text-center focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-white/50 block mb-1">Neue PIN</label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={8}
+                  value={newPin}
+                  onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))}
+                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-base font-mono text-white tracking-[0.3em] text-center focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-white/50 block mb-1">Neue PIN bestätigen</label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={8}
+                  value={newPinConfirm}
+                  onChange={(e) => setNewPinConfirm(e.target.value.replace(/\D/g, ""))}
+                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-base font-mono text-white tracking-[0.3em] text-center focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              {pinMsg && (
+                <p className={cn("text-sm text-center", pinMsg.kind === "ok" ? "text-emerald-400" : "text-red-400")}>{pinMsg.text}</p>
+              )}
+              <button
+                onClick={handleChangePin}
+                disabled={pinSaving}
+                className="w-full rounded-xl bg-white/8 hover:bg-white/12 ring-1 ring-white/15 py-3 text-sm font-semibold text-white transition-all active:scale-[0.98]"
+              >
+                {pinSaving ? "Wird geändert..." : "PIN ändern"}
+              </button>
+            </div>
+          </GlassCard>
 
           {isAdmin && (
             <GlassCard className="mb-8">
@@ -444,35 +536,88 @@ function DateAdder({
 }: {
   label: string;
   accent: "red" | "amber";
-  onAdd: (date: string) => void;
+  onAdd: (from: string, to?: string) => void;
 }) {
-  const [val, setVal] = useState("");
+  const [von, setVon] = useState("");
+  const [bis, setBis] = useState("");
   const accentBg = accent === "red" ? "bg-red-500/15 ring-red-400/30 hover:bg-red-500/25" : "bg-amber-500/15 ring-amber-400/30 hover:bg-amber-500/25";
   const accentText = accent === "red" ? "text-red-200" : "text-amber-200";
+
+  const handle = () => {
+    if (!von) return;
+    onAdd(von, bis || undefined);
+    setVon(""); setBis("");
+  };
 
   return (
     <div>
       <label className="text-xs text-white/50 block mb-1.5">{label}</label>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <input
           type="date"
-          value={val}
-          onChange={(e) => setVal(e.target.value)}
-          className="flex-1 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary/50"
+          value={von}
+          onChange={(e) => setVon(e.target.value)}
+          className="flex-1 min-w-[140px] rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary/50"
+        />
+        <span className="text-white/30 text-xs">bis</span>
+        <input
+          type="date"
+          value={bis}
+          min={von || undefined}
+          onChange={(e) => setBis(e.target.value)}
+          placeholder="optional"
+          className="flex-1 min-w-[140px] rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary/50"
         />
         <button
-          onClick={() => {
-            if (!val) return;
-            onAdd(val);
-            setVal("");
-          }}
+          onClick={handle}
           className={cn("rounded-xl px-4 py-2.5 text-sm font-semibold ring-1 transition-all active:scale-95", accentBg, accentText)}
         >
           <Plus className="h-4 w-4" />
         </button>
       </div>
+      <p className="text-[10px] text-white/30 mt-1">Bis-Datum optional – leer = einzelner Tag.</p>
     </div>
   );
+}
+
+function groupConsecutive(dates: string[]): { start: string; end: string }[] {
+  if (dates.length === 0) return [];
+  const sorted = [...dates].sort();
+  const groups: { start: string; end: string }[] = [];
+  let curStart = sorted[0];
+  let curEnd = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(curEnd + "T00:00:00");
+    prev.setDate(prev.getDate() + 1);
+    if (prev.toISOString().slice(0, 10) === sorted[i]) {
+      curEnd = sorted[i];
+    } else {
+      groups.push({ start: curStart, end: curEnd });
+      curStart = sorted[i];
+      curEnd = sorted[i];
+    }
+  }
+  groups.push({ start: curStart, end: curEnd });
+  return groups;
+}
+
+function expandRange(g: { start: string; end: string }): string[] {
+  const out: string[] = [];
+  const cur = new Date(g.start + "T00:00:00");
+  const end = new Date(g.end + "T00:00:00");
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+function formatRange(g: { start: string; end: string }): string {
+  const fmt = (d: string) => {
+    const [y, m, day] = d.split("-");
+    return `${day}.${m}.${y.slice(2)}`;
+  };
+  return g.start === g.end ? fmt(g.start) : `${fmt(g.start)} – ${fmt(g.end)}`;
 }
 
 function ToggleRow({

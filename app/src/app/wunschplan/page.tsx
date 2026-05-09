@@ -163,13 +163,15 @@ export default function WunschplanPage() {
   const [dayDetails, setDayDetails] = useState<Record<number, DayDetail>>({});
   const [sheetDay, setSheetDay] = useState<number | null>(null);
   const [sheetZeiten, setSheetZeiten] = useState<Record<string, ZeitFenster>>({});
-  const [zielDienste, setZielDienste] = useState(8);
+  const [zielDiensteMin, setZielDiensteMin] = useState(5);
+  const [zielDiensteMax, setZielDiensteMax] = useState(8);
   const [zielAnmeldungen, setZielAnmeldungen] = useState(1);
   const [showHelp, setShowHelp] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [teamMembers, setTeamMembers] = useState<Hebamme[]>([]);
   const [feiertage, setFeiertage] = useState<Feiertag[]>([]);
+  const [bayernFerien, setBayernFerien] = useState<{ name: string; start: string; end: string }[]>([]);
 
   const sheetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -181,7 +183,25 @@ export default function WunschplanPage() {
   }, []);
   useEffect(() => {
     getFeiertage(year).then(setFeiertage).catch(() => {});
+    fetch(`https://ferien-api.de/api/v1/holidays/BY/${year}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: { name: string; start: string; end: string }[]) => setBayernFerien(Array.isArray(data) ? data : []))
+      .catch(() => setBayernFerien([]));
   }, [year]);
+
+  const bayernFerienByDay = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const f of bayernFerien) {
+      const cur = new Date(f.start.slice(0, 10) + "T00:00:00");
+      const end = new Date(f.end.slice(0, 10) + "T00:00:00");
+      while (cur <= end) {
+        const key = cur.toISOString().slice(0, 10);
+        if (!map[key]) map[key] = f.name;
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+    return map;
+  }, [bayernFerien]);
 
   const feiertageMap = useMemo(() => {
     const map: Record<string, Feiertag> = {};
@@ -223,7 +243,8 @@ export default function WunschplanPage() {
     getWuensche(monatKey, user.id).then((wuensche) => {
       const states: Record<number, DayStatus> = {};
       const details: Record<number, DayDetail> = {};
-      let dienste = 8;
+      let dMin = 5;
+      let dMax = 8;
       let anmeldungen = 1;
 
       for (const w of wuensche) {
@@ -256,14 +277,18 @@ export default function WunschplanPage() {
               })),
           };
         }
-        if (w.ziel_dienste) dienste = w.ziel_dienste;
+        if (w.ziel_dienste_min !== undefined && w.ziel_dienste_min !== null) dMin = w.ziel_dienste_min;
+        else if (w.ziel_dienste) dMin = Math.max(1, w.ziel_dienste - 2);
+        if (w.ziel_dienste_max !== undefined && w.ziel_dienste_max !== null) dMax = w.ziel_dienste_max;
+        else if (w.ziel_dienste) dMax = w.ziel_dienste;
         if (w.ziel_anmeldungen) anmeldungen = w.ziel_anmeldungen;
       }
 
       const daysInM = getDaysInMonth(year, month);
       setDayStates(applyFixSettings(states, daysInM));
       setDayDetails(details);
-      setZielDienste(dienste);
+      setZielDiensteMin(dMin);
+      setZielDiensteMax(dMax);
       setZielAnmeldungen(anmeldungen);
     }).catch(() => {});
   }, [monatKey, user, year, month, applyFixSettings]);
@@ -322,7 +347,7 @@ export default function WunschplanPage() {
         }
       }
 
-      await saveWuenscheBulk(user.id, monatKey, wuensche, zielDienste, zielAnmeldungen);
+      await saveWuenscheBulk(user.id, monatKey, wuensche, zielDiensteMin, zielDiensteMax, zielAnmeldungen);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
@@ -573,17 +598,20 @@ export default function WunschplanPage() {
               const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
               const isHoliday = feiertageMap[dateKey]?.typ === "feiertag";
               const isFerien = feiertageMap[dateKey]?.typ === "ferien";
+              const bayernFerienName = bayernFerienByDay[dateKey];
 
               return (
                 <button
                   key={day}
                   onClick={() => tapDay(day)}
+                  title={bayernFerienName ? `Bayern: ${bayernFerienName.charAt(0).toUpperCase() + bayernFerienName.slice(1)}` : undefined}
                   className={cn(
                     "aspect-square rounded-2xl font-semibold transition-all duration-200 relative flex flex-col items-center justify-center select-none active:scale-95",
                     weekend && status === "leer" ? "text-white/25" : status === "leer" ? "text-white/60 hover:bg-white/5" : "text-white",
                     config.bg, config.ring,
                     isHoliday && status === "leer" && "ring-1 ring-amber-400/30",
-                    isFerien && status === "leer" && "ring-1 ring-emerald-400/20"
+                    isFerien && status === "leer" && "ring-1 ring-emerald-400/20",
+                    bayernFerienName && status === "leer" && "bg-emerald-400/[0.06]"
                   )}
                 >
                   <span className="text-[15px] leading-none">{day}</span>
@@ -619,6 +647,9 @@ export default function WunschplanPage() {
                       <span className="text-[7px] leading-none text-amber-400/80">{isHoliday ? "F" : "•"}</span>
                     </div>
                   )}
+                  {bayernFerienName && (
+                    <div className="absolute bottom-[3px] left-[8px] right-[8px] h-[3px] rounded-full bg-emerald-400/55" />
+                  )}
                 </button>
               );
             })}
@@ -638,18 +669,31 @@ export default function WunschplanPage() {
               <div className="h-[6px] w-[6px] rounded-full bg-amber-400 ml-1" /><span>schön frei</span>
               <div className="h-[6px] w-[6px] rounded-full bg-red-400 ml-1" /><span>kann nicht</span>
             </div>
+            <div className="flex items-center justify-center gap-1.5 text-[11px] text-white/30">
+              <div className="h-[3px] w-3 rounded-full bg-emerald-400/55" />
+              <span>Bayrische Ferien</span>
+            </div>
           </div>
         </GlassCard>
 
         <GlassCard className="mb-6">
-          <h3 className="text-base font-semibold text-white mb-4">Wie viele Dienste möchtest du?</h3>
+          <h3 className="text-base font-semibold text-white mb-1">Wie viele Dienste möchtest du?</h3>
+          <p className="text-xs text-white/40 mb-4">Solver versucht erst das Minimum für alle, geht dann Richtung Maximum, bevor andere erzwungen werden.</p>
           <div className="space-y-5">
             <div className="flex items-center justify-between">
-              <div><p className="text-sm font-medium text-white/80">Dienste gesamt</p><p className="text-xs text-white/40">Schichten im Monat</p></div>
+              <div><p className="text-sm font-medium text-white/80">Bevorzugt (Min)</p><p className="text-xs text-white/40">Möchte mindestens so viele</p></div>
               <div className="flex items-center gap-3">
-                <button onClick={() => setZielDienste(Math.max(1, zielDienste - 1))} className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-glass active:scale-95"><Minus className="h-5 w-5" /></button>
-                <span className="text-2xl font-bold text-white w-8 text-center">{zielDienste}</span>
-                <button onClick={() => setZielDienste(Math.min(20, zielDienste + 1))} className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-glass active:scale-95"><Plus className="h-5 w-5" /></button>
+                <button onClick={() => setZielDiensteMin(Math.max(1, zielDiensteMin - 1))} className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-glass active:scale-95"><Minus className="h-5 w-5" /></button>
+                <span className="text-2xl font-bold text-emerald-300 w-8 text-center">{zielDiensteMin}</span>
+                <button onClick={() => setZielDiensteMin(Math.min(zielDiensteMax, zielDiensteMin + 1))} className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-glass active:scale-95"><Plus className="h-5 w-5" /></button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div><p className="text-sm font-medium text-white/80">Maximum</p><p className="text-xs text-white/40">Mehr nur, wenn unbedingt nötig</p></div>
+              <div className="flex items-center gap-3">
+                <button onClick={() => setZielDiensteMax(Math.max(zielDiensteMin, zielDiensteMax - 1))} className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-glass active:scale-95"><Minus className="h-5 w-5" /></button>
+                <span className="text-2xl font-bold text-white w-8 text-center">{zielDiensteMax}</span>
+                <button onClick={() => setZielDiensteMax(Math.min(20, zielDiensteMax + 1))} className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-glass active:scale-95"><Plus className="h-5 w-5" /></button>
               </div>
             </div>
             <div className="flex items-center justify-between">

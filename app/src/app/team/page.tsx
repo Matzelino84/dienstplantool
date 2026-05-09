@@ -21,7 +21,7 @@ export default function TeamPage() {
   const [team, setTeam] = useState<Hebamme[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newPin, setNewPin] = useState("");
+  const [newPin, setNewPin] = useState("1234");
   const [newRolle, setNewRolle] = useState<"hebamme" | "admin">("hebamme");
   const [newFarbe, setNewFarbe] = useState(FARBEN[0]);
   const [saving, setSaving] = useState(false);
@@ -50,7 +50,7 @@ export default function TeamPage() {
       });
       setShowAdd(false);
       setNewName("");
-      setNewPin("");
+      setNewPin("1234");
       setNewRolle("hebamme");
       loadTeam();
     } catch (err: unknown) {
@@ -165,6 +165,7 @@ export default function TeamPage() {
                     placeholder="1234"
                     className="w-full rounded-xl bg-white/10 border-0 px-4 py-3 text-base text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-primary/50 tracking-[0.3em] text-center font-mono"
                   />
+                  <p className="text-[11px] text-white/30 mt-1.5">Standard 1234 – die Person ändert sie selbst im Profil.</p>
                 </div>
 
                 {/* Rolle */}
