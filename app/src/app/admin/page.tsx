@@ -3,7 +3,7 @@
 import { AuthGuard } from "@/components/auth-guard";
 import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { GlassCard } from "@/components/ui/glass-card";
 import {
@@ -641,77 +641,69 @@ export default function AdminPage() {
                 <ChevronDown className={cn("h-4 w-4 text-white/40 transition-transform", showGewichtung && "rotate-180")} />
               </button>
               <p className="text-xs text-white/40 mt-1 mb-3">
-                Was der Solver pro Person berücksichtigt – Fairness, Ziele und harte/weiche Einstellungen.
+                So entscheidet der Solver. <span className="text-white/60">Niedrige Punkte = bessere Wahl.</span> Pro Slot werden alle Hebammen bepunktet, die niedrigste Summe gewinnt.
               </p>
               {showGewichtung && (
-                <div className="space-y-3">
-                  {team.map((member) => {
-                    const w = allWuensche.find((x) => x.hebamme === member.id);
-                    const min = w?.ziel_dienste_min ?? 0;
-                    const max = w?.ziel_dienste_max ?? w?.ziel_dienste ?? 0;
-                    const ana = w?.ziel_anmeldungen ?? 0;
-                    const s = member.settings || {};
-                    const hardChips = [
-                      s.nur_tagdienste && "Nur Tag",
-                      s.nur_bds && "Nur BD",
-                      s.keine_anmeldung && "Keine Anmeldung",
-                    ].filter(Boolean) as string[];
-                    const softChips = [
-                      s.lieber_nachtdienste && "Bevorzugt Nacht",
-                      s.bd_24h && "24h-BD",
-                    ].filter(Boolean) as string[];
-                    const blockedWd = (s.fix_blocked_weekdays || []).map((i) => WOCHENTAGE[i]).join(", ");
-                    const freiWd = (s.fix_frei_weekdays || []).map((i) => WOCHENTAGE[i]).join(", ");
-                    const blockedDates = s.fix_blocked_dates?.length ?? 0;
-                    const freiDates = s.fix_frei_dates?.length ?? 0;
-                    const fairness = member.fairness_score ?? 50;
-                    return (
-                      <div key={member.id} className="rounded-xl bg-white/[0.03] p-3 ring-1 ring-white/5">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: member.farbe || "#666" }} />
-                          <span className="text-sm font-semibold text-white flex-1 truncate">{member.vorname}</span>
-                          <span className="text-[11px] text-white/50">
-                            Fairness <span className={cn(
-                              "font-bold",
-                              fairness >= 60 ? "text-emerald-300" : fairness >= 40 ? "text-amber-300" : "text-red-300"
-                            )}>{fairness}%</span>
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-                          <div className="text-white/40">Ziel Dienste</div>
-                          <div className="text-white/80 font-medium tabular-nums">
-                            {max === 0 ? "—" : min === max ? max : `${min}–${max}`}
-                          </div>
-                          <div className="text-white/40">Ziel Anmeldungen</div>
-                          <div className="text-white/80 font-medium tabular-nums">{ana || "—"}</div>
-                          {s.max_we_dienste !== undefined && s.max_we_dienste > 0 && (
-                            <>
-                              <div className="text-white/40">Max WE-Dienste</div>
-                              <div className="text-white/80 font-medium tabular-nums">{s.max_we_dienste}</div>
-                            </>
-                          )}
-                        </div>
-                        {(hardChips.length > 0 || softChips.length > 0) && (
-                          <div className="flex flex-wrap gap-1.5 mt-2">
-                            {hardChips.map((c) => (
-                              <span key={c} className="rounded-full bg-red-500/15 ring-1 ring-red-400/25 px-2 py-0.5 text-[10px] font-medium text-red-300">{c}</span>
-                            ))}
-                            {softChips.map((c) => (
-                              <span key={c} className="rounded-full bg-sky-500/15 ring-1 ring-sky-400/25 px-2 py-0.5 text-[10px] font-medium text-sky-300">{c}</span>
-                            ))}
-                          </div>
-                        )}
-                        {(blockedWd || freiWd || blockedDates > 0 || freiDates > 0) && (
-                          <div className="mt-2 space-y-0.5 text-[10px]">
-                            {blockedWd && <p className="text-white/40">Kann nie: <span className="text-red-300/80">{blockedWd}</span></p>}
-                            {freiWd && <p className="text-white/40">Frei-Pattern: <span className="text-amber-300/80">{freiWd}</span></p>}
-                            {blockedDates > 0 && <p className="text-white/40">Sperr-Tage: <span className="text-red-300/80">{blockedDates}</span></p>}
-                            {freiDates > 0 && <p className="text-white/40">Frei-Tage: <span className="text-amber-300/80">{freiDates}</span></p>}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                <div className="space-y-4">
+                  <GewichtSection title="Basis nach Status" subtitle="Ausgangs-Punktzahl je nach Wunsch der Person für diesen Tag.">
+                    <GewichtRow label="Verfügbar – passende Schicht gewünscht" value="0" tone="emerald" hint="Perfekter Match" />
+                    <GewichtRow label="Verfügbar – ohne konkrete Präferenz" value="50" tone="emerald" />
+                    <GewichtRow label="Verfügbar – aber andere Schicht gewünscht" value="200" tone="amber" />
+                    <GewichtRow label="Kein Wunsch eingetragen (leer)" value="300" tone="white" />
+                    <GewichtRow label="„Wäre schön frei&quot;" value="400" tone="amber" />
+                    <GewichtRow label="„Wichtig frei&quot;" value="800" tone="red" hint="Nur Notfall" />
+                    <GewichtRow label="Urlaub" value="∞" tone="red" hint="Hart ausgeschlossen" />
+                    <GewichtRow label="Letzte Reserve (frei_wichtig nötig)" value="1000+" tone="red" />
+                    <GewichtRow label="Allerletzte Reserve" value="2000+" tone="red" />
+                  </GewichtSection>
+
+                  <GewichtSection title="Hart ausgeschlossen" subtitle="Diese Personen werden für den jeweiligen Slot nie betrachtet.">
+                    <GewichtRow label="Urlaub am Tag" value="—" tone="red" />
+                    <GewichtRow label="Bereits anderer Dienst am selben Tag" value="—" tone="red" />
+                    <GewichtRow label="Setting „Nur Tag&quot; bei Nacht/BD-Nacht" value="—" tone="red" />
+                    <GewichtRow label="Setting „Nur BD&quot; bei Tag/Nacht/Anmeldung" value="—" tone="red" />
+                    <GewichtRow label="Setting „Keine Anmeldung&quot; bei Anmeldung" value="—" tone="red" />
+                  </GewichtSection>
+
+                  <GewichtSection title="Lastausgleich (Boni / Mali)" subtitle="Werden auf die Basis addiert.">
+                    <GewichtRow label="Fairness-Score (niedriger = vorrangig)" value="bis −50" tone="emerald" hint="−0,5 × (100 − Score)" />
+                    <GewichtRow label="Bereits zugewiesene Dienste" value="+10 / Dienst" tone="amber" />
+                    <GewichtRow label="Gleiche Schicht am Vortag (Tag/Nacht/Anmeldung)" value="+1500" tone="red" hint="Faktisch verboten" />
+                  </GewichtSection>
+
+                  <GewichtSection title="Ziel-Dienste-Range" subtitle="Pro Person konfigurierbar (Min–Max-Dienste).">
+                    <GewichtRow label="Unter Minimum" value="−200" tone="emerald" hint="Boost: ans Min ranführen" />
+                    <GewichtRow label="Zwischen Min und Max" value="+30 / Schritt" tone="amber" hint="Sanft Richtung Max bremsen" />
+                    <GewichtRow label="Maximum erreicht" value="+600" tone="red" />
+                  </GewichtSection>
+
+                  <GewichtSection title="Wochenende" subtitle="Default-Cap: 2 (bzw. 3 bei Monaten mit ≥5 Wochenenden).">
+                    <GewichtRow label="Pro bereits zugeteiltem WE-Dienst" value="+15" tone="amber" />
+                    <GewichtRow label="WE-Cap der Person erreicht" value="+600" tone="red" />
+                  </GewichtSection>
+
+                  <GewichtSection title="Anmeldung (Di/Fr)" subtitle="Soll möglichst gleichmäßig verteilt werden.">
+                    <GewichtRow label="Person hat noch keine Anmeldung" value="−250" tone="emerald" hint="Jeder soll ≥ 1 bekommen" />
+                    <GewichtRow label="Pro bereits zugeteilter Anmeldung" value="+12" tone="amber" />
+                    <GewichtRow label="Persönliches Ziel erreicht" value="+200" tone="red" />
+                  </GewichtSection>
+
+                  <GewichtSection title="Tag/Nacht-Ausgleich" subtitle="Verteilt Tagdienste und Nachtdienste fair zwischen den Personen.">
+                    <GewichtRow label="Differenz zur jeweils anderen Seite" value="±8 / Schritt" tone="amber" />
+                    <GewichtRow label="BD-Tag/BD-Nacht-Differenz" value="±5 / Schritt" tone="amber" />
+                  </GewichtSection>
+
+                  <GewichtSection title="Persönliche Präferenzen (Soft-Settings)" subtitle="Aus dem Profil der Hebamme.">
+                    <GewichtRow label="„Lieber Nachtdienste&quot; → Nachtdienst" value="−20" tone="emerald" />
+                    <GewichtRow label="„Lieber Nachtdienste&quot; → Tagdienst" value="+10" tone="amber" />
+                    <GewichtRow label="„24h-BD&quot; – komplementärer BD am selben Tag" value="−80" tone="emerald" hint="Zieht Tag- und Nacht-BD zusammen" />
+                  </GewichtSection>
+
+                  <GewichtSection title="Nur-BD Hebammen (Einarbeitung)" subtitle="Diversifizierung über die Wochentage.">
+                    <GewichtRow label="BD an einem Wochenende" value="+60" tone="amber" hint="Wochentage bevorzugt" />
+                    <GewichtRow label="BD-Nacht (statt BD-Tag)" value="+30" tone="amber" />
+                    <GewichtRow label="BD an einem schon belegten Wochentag" value="+25" tone="amber" hint="Streuen über die Woche" />
+                  </GewichtSection>
                 </div>
               )}
             </GlassCard>
@@ -1234,6 +1226,52 @@ function MiniStat({
       <p className="text-[10px] uppercase tracking-wider text-white/35">{label}</p>
       <p className={cn("text-xl font-bold mt-0.5 leading-none", valColor)}>{value}</p>
       {hint && <p className="text-[10px] text-white/40 mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+function GewichtSection({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl bg-white/[0.03] ring-1 ring-white/5 p-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-white/55">{title}</h3>
+      {subtitle && <p className="text-[11px] text-white/35 mt-0.5 mb-2">{subtitle}</p>}
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
+}
+
+function GewichtRow({
+  label,
+  value,
+  tone,
+  hint,
+}: {
+  label: string;
+  value: string;
+  tone: "emerald" | "amber" | "red" | "white";
+  hint?: string;
+}) {
+  const valCls = {
+    emerald: "text-emerald-300",
+    amber: "text-amber-300",
+    red: "text-red-300",
+    white: "text-white/70",
+  }[tone];
+  return (
+    <div className="flex items-baseline gap-3 py-1">
+      <div className="flex-1 min-w-0">
+        <p className="text-[12px] text-white/75 leading-tight">{label}</p>
+        {hint && <p className="text-[10px] text-white/35 leading-tight mt-0.5">{hint}</p>}
+      </div>
+      <span className={cn("text-[12px] font-bold tabular-nums whitespace-nowrap", valCls)}>{value}</span>
     </div>
   );
 }
