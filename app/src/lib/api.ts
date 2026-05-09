@@ -146,6 +146,13 @@ export async function changeMyPin(
   });
 }
 
+export async function adminResetPin(userId: string, newPin: string): Promise<void> {
+  await pb.collection("hebammen").update(userId, {
+    password: newPin,
+    passwordConfirm: newPin,
+  });
+}
+
 // ===== SCHICHT SLOTS =====
 
 export async function getSchichtSlots(monat: string): Promise<SchichtSlot[]> {

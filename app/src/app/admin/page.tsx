@@ -88,6 +88,7 @@ export default function AdminPage() {
   const [savingPlan, setSavingPlan] = useState(false);
   const [result, setResult] = useState<SolverResult | null>(null);
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
+  const [showGewichtung, setShowGewichtung] = useState(false);
   const [selectedKonflikt, setSelectedKonflikt] = useState<SolverKonflikt | null>(null);
   const [drillMember, setDrillMember] = useState<Hebamme | null>(null);
   const [zuweisungIdMap, setZuweisungIdMap] = useState<Record<string, string>>({});
@@ -628,6 +629,93 @@ export default function AdminPage() {
               </div>
             </GlassCard>
 
+            <GlassCard className="mb-6">
+              <button
+                onClick={() => setShowGewichtung((v) => !v)}
+                className="flex w-full items-center justify-between text-left"
+              >
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-primary/70" />
+                  <h2 className="text-base font-semibold text-white">Algorithmus-Gewichtung</h2>
+                </div>
+                <ChevronDown className={cn("h-4 w-4 text-white/40 transition-transform", showGewichtung && "rotate-180")} />
+              </button>
+              <p className="text-xs text-white/40 mt-1 mb-3">
+                Was der Solver pro Person berücksichtigt – Fairness, Ziele und harte/weiche Einstellungen.
+              </p>
+              {showGewichtung && (
+                <div className="space-y-3">
+                  {team.map((member) => {
+                    const w = allWuensche.find((x) => x.hebamme === member.id);
+                    const min = w?.ziel_dienste_min ?? 0;
+                    const max = w?.ziel_dienste_max ?? w?.ziel_dienste ?? 0;
+                    const ana = w?.ziel_anmeldungen ?? 0;
+                    const s = member.settings || {};
+                    const hardChips = [
+                      s.nur_tagdienste && "Nur Tag",
+                      s.nur_bds && "Nur BD",
+                      s.keine_anmeldung && "Keine Anmeldung",
+                    ].filter(Boolean) as string[];
+                    const softChips = [
+                      s.lieber_nachtdienste && "Bevorzugt Nacht",
+                      s.bd_24h && "24h-BD",
+                    ].filter(Boolean) as string[];
+                    const blockedWd = (s.fix_blocked_weekdays || []).map((i) => WOCHENTAGE[i]).join(", ");
+                    const freiWd = (s.fix_frei_weekdays || []).map((i) => WOCHENTAGE[i]).join(", ");
+                    const blockedDates = s.fix_blocked_dates?.length ?? 0;
+                    const freiDates = s.fix_frei_dates?.length ?? 0;
+                    const fairness = member.fairness_score ?? 50;
+                    return (
+                      <div key={member.id} className="rounded-xl bg-white/[0.03] p-3 ring-1 ring-white/5">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: member.farbe || "#666" }} />
+                          <span className="text-sm font-semibold text-white flex-1 truncate">{member.vorname}</span>
+                          <span className="text-[11px] text-white/50">
+                            Fairness <span className={cn(
+                              "font-bold",
+                              fairness >= 60 ? "text-emerald-300" : fairness >= 40 ? "text-amber-300" : "text-red-300"
+                            )}>{fairness}%</span>
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                          <div className="text-white/40">Ziel Dienste</div>
+                          <div className="text-white/80 font-medium tabular-nums">
+                            {max === 0 ? "—" : min === max ? max : `${min}–${max}`}
+                          </div>
+                          <div className="text-white/40">Ziel Anmeldungen</div>
+                          <div className="text-white/80 font-medium tabular-nums">{ana || "—"}</div>
+                          {s.max_we_dienste !== undefined && s.max_we_dienste > 0 && (
+                            <>
+                              <div className="text-white/40">Max WE-Dienste</div>
+                              <div className="text-white/80 font-medium tabular-nums">{s.max_we_dienste}</div>
+                            </>
+                          )}
+                        </div>
+                        {(hardChips.length > 0 || softChips.length > 0) && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {hardChips.map((c) => (
+                              <span key={c} className="rounded-full bg-red-500/15 ring-1 ring-red-400/25 px-2 py-0.5 text-[10px] font-medium text-red-300">{c}</span>
+                            ))}
+                            {softChips.map((c) => (
+                              <span key={c} className="rounded-full bg-sky-500/15 ring-1 ring-sky-400/25 px-2 py-0.5 text-[10px] font-medium text-sky-300">{c}</span>
+                            ))}
+                          </div>
+                        )}
+                        {(blockedWd || freiWd || blockedDates > 0 || freiDates > 0) && (
+                          <div className="mt-2 space-y-0.5 text-[10px]">
+                            {blockedWd && <p className="text-white/40">Kann nie: <span className="text-red-300/80">{blockedWd}</span></p>}
+                            {freiWd && <p className="text-white/40">Frei-Pattern: <span className="text-amber-300/80">{freiWd}</span></p>}
+                            {blockedDates > 0 && <p className="text-white/40">Sperr-Tage: <span className="text-red-300/80">{blockedDates}</span></p>}
+                            {freiDates > 0 && <p className="text-white/40">Frei-Tage: <span className="text-amber-300/80">{freiDates}</span></p>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </GlassCard>
+
             <button
               onClick={handleGenerate}
               disabled={generating}
@@ -647,6 +735,40 @@ export default function AdminPage() {
 
             {result && (
               <>
+                {/* Primary action prominent, others as compact toolbar */}
+                <button
+                  onClick={() => handlePersistAndRelease(true)}
+                  disabled={savingPlan}
+                  className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500/35 to-emerald-600/35 ring-1 ring-emerald-400/40 py-5 text-base font-bold text-emerald-200 transition-glass hover:from-emerald-500/45 hover:to-emerald-600/45 active:scale-[0.98] mb-3 shadow-lg shadow-emerald-500/10"
+                >
+                  {savingPlan ? (
+                    <><div className="h-5 w-5 rounded-full border-2 border-emerald-300/40 border-t-emerald-300 animate-spin" /> Wird gespeichert...</>
+                  ) : (
+                    <><CheckCircle2 className="h-5 w-5" /> Speichern &amp; für alle freigeben</>
+                  )}
+                </button>
+                <div className="grid grid-cols-3 gap-2 mb-6">
+                  <button
+                    onClick={() => handlePersistAndRelease(false)}
+                    disabled={savingPlan}
+                    className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 ring-1 ring-white/10 py-3 text-xs font-semibold text-white/70 transition-all hover:bg-white/10 active:scale-95"
+                  >
+                    Entwurf speichern
+                  </button>
+                  <a
+                    href="/dienstplan"
+                    className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 ring-1 ring-white/10 py-3 text-xs font-semibold text-white/70 transition-all hover:bg-white/10 active:scale-95"
+                  >
+                    <Eye className="h-3.5 w-3.5" /> Vorschau
+                  </a>
+                  <button
+                    onClick={() => exportPDF(result, year, month)}
+                    className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 ring-1 ring-white/10 py-3 text-xs font-semibold text-white/70 transition-all hover:bg-white/10 active:scale-95"
+                  >
+                    <Printer className="h-3.5 w-3.5" /> PDF
+                  </button>
+                </div>
+
                 {result.statistik.erzwungen > 0 && (
                   <GlassCard className="mb-6">
                     <h2 className="text-base font-semibold text-white mb-3 flex items-center gap-2">
@@ -654,7 +776,11 @@ export default function AdminPage() {
                       Erzwungene Einteilungen
                     </h2>
                     <div className="space-y-2">
-                      {result.zuweisungen.filter((z) => z.erzwungen).map((z, i) => {
+                      {result.zuweisungen
+                        .filter((z) => z.erzwungen)
+                        .slice()
+                        .sort((a, b) => a.tag - b.tag || a.typ.localeCompare(b.typ))
+                        .map((z, i) => {
                         const dow = new Date(year, month, z.tag).getDay();
                         const konflikt = result.konflikte.find((k) => k.tag === z.tag && k.typ === z.typ);
                         return (
@@ -879,40 +1005,6 @@ export default function AdminPage() {
                     })()}
                   </div>
                 </GlassCard>
-
-                {/* Primary action prominent, others as compact toolbar */}
-                <button
-                  onClick={() => handlePersistAndRelease(true)}
-                  disabled={savingPlan}
-                  className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500/35 to-emerald-600/35 ring-1 ring-emerald-400/40 py-5 text-base font-bold text-emerald-200 transition-glass hover:from-emerald-500/45 hover:to-emerald-600/45 active:scale-[0.98] mb-3 shadow-lg shadow-emerald-500/10"
-                >
-                  {savingPlan ? (
-                    <><div className="h-5 w-5 rounded-full border-2 border-emerald-300/40 border-t-emerald-300 animate-spin" /> Wird gespeichert...</>
-                  ) : (
-                    <><CheckCircle2 className="h-5 w-5" /> Speichern &amp; für alle freigeben</>
-                  )}
-                </button>
-                <div className="grid grid-cols-3 gap-2 mb-8">
-                  <button
-                    onClick={() => handlePersistAndRelease(false)}
-                    disabled={savingPlan}
-                    className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 ring-1 ring-white/10 py-3 text-xs font-semibold text-white/70 transition-all hover:bg-white/10 active:scale-95"
-                  >
-                    Entwurf speichern
-                  </button>
-                  <a
-                    href="/dienstplan"
-                    className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 ring-1 ring-white/10 py-3 text-xs font-semibold text-white/70 transition-all hover:bg-white/10 active:scale-95"
-                  >
-                    <Eye className="h-3.5 w-3.5" /> Vorschau
-                  </a>
-                  <button
-                    onClick={() => exportPDF(result, year, month)}
-                    className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 ring-1 ring-white/10 py-3 text-xs font-semibold text-white/70 transition-all hover:bg-white/10 active:scale-95"
-                  >
-                    <Printer className="h-3.5 w-3.5" /> PDF
-                  </button>
-                </div>
               </>
             )}
           </>
