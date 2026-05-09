@@ -116,10 +116,12 @@ export default function DienstplanPage() {
           if (!data[d]) data[d] = {};
           const typ = slot.typ as string;
           const key = data[d][typ] ? `${typ}_2` : typ;
+          const defaultVon = slot.typ === "nachtdienst" || slot.typ === "bd_nacht" ? "19:00" : slot.typ === "anmeldung" ? "09:00" : "07:00";
+          const defaultBis = slot.typ === "nachtdienst" || slot.typ === "bd_nacht" ? "07:00" : slot.typ === "anmeldung" ? "14:00" : "19:00";
           data[d][key] = {
             name: hebamme.vorname,
-            von: z.notizen?.split("–")[0] || "07:00",
-            bis: z.notizen?.split("–")[1] || "19:00",
+            von: z.zeit_von || defaultVon,
+            bis: z.zeit_bis || defaultBis,
             farbe: hebamme.farbe || "#666",
           };
         }

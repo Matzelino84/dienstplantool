@@ -17,6 +17,7 @@ type AuthState = {
   isLoading: boolean;
   login: (name: string, pin: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState>({
@@ -25,6 +26,7 @@ const AuthContext = createContext<AuthState>({
   isLoading: true,
   login: async () => {},
   logout: () => {},
+  refreshUser: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -52,10 +54,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    if (!pb.authStore.isValid || !pb.authStore.record) return;
+    try {
+      const fresh = await pb
+        .collection("hebammen")
+        .authRefresh();
+      setUser(fresh.record as unknown as Hebamme);
+    } catch {
+      // ignore – stale token, will be cleared on next login
+    }
+  }, []);
+
   const isAdmin = user?.rolle === "admin";
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, isLoading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

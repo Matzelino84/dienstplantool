@@ -19,6 +19,19 @@ export type FreiWunsch = "wichtig" | "waere_schoen";
 
 export type PlanStatus = "entwurf" | "generiert" | "freigegeben";
 
+export type FeiertagTyp = "feiertag" | "ferien";
+
+export interface HebammeSettings {
+  nur_tagdienste?: boolean;
+  nur_bds?: boolean;
+  keine_anmeldung?: boolean;
+  bd_24h?: boolean;
+  lieber_nachtdienste?: boolean;
+  max_we_dienste?: number;
+  fix_blocked_weekdays?: number[]; // 0=So..6=Sa
+  fix_frei_weekdays?: number[];
+}
+
 export interface Hebamme {
   id: string;
   email: string;
@@ -28,6 +41,7 @@ export interface Hebamme {
   farbe: string;
   fairness_score: number;
   aktiv: boolean;
+  settings?: HebammeSettings | null;
 }
 
 export interface SchichtSlot {
@@ -37,6 +51,12 @@ export interface SchichtSlot {
   ist_feiertag: boolean;
   monat: string;
   notizen: string;
+}
+
+export interface DienstEintrag {
+  typ: SchichtTyp;
+  zeit_von: string;
+  zeit_bis: string;
 }
 
 export interface Wunsch {
@@ -52,6 +72,7 @@ export interface Wunsch {
   besonderheiten: string;
   zeit_von: string;
   zeit_bis: string;
+  dienste_json?: DienstEintrag[] | null;
 }
 
 export interface Zuweisung {
@@ -62,6 +83,8 @@ export interface Zuweisung {
   wunsch_erfuellt: boolean;
   manuell_geaendert: boolean;
   notizen: string;
+  zeit_von: string;
+  zeit_bis: string;
   expand?: {
     hebamme?: Hebamme;
     schicht_slot?: SchichtSlot;
@@ -76,6 +99,13 @@ export interface Dienstplan {
   freigegeben_am: string;
   freigegeben_von: string;
   statistik: Record<string, unknown>;
+}
+
+export interface Feiertag {
+  id: string;
+  datum: string;
+  name: string;
+  typ: FeiertagTyp;
 }
 
 export const SCHICHT_LABELS: Record<SchichtTyp, string> = {
