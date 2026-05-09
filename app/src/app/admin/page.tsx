@@ -1005,8 +1005,8 @@ export default function AdminPage() {
                           className={cn(
                             "rounded-xl p-3 transition-all",
                             isWE ? "bg-white/[0.02]" : "bg-white/[0.04]",
-                            holiday?.kind === "feiertag" && "bg-white/[0.07] ring-1 ring-white/15",
-                            holiday?.kind === "ferien" && "bg-slate-400/[0.07] ring-1 ring-slate-300/15",
+                            holiday?.kind === "feiertag" && "bg-white/15 ring-1 ring-white/30",
+                            holiday?.kind === "ferien" && "bg-slate-300/15 ring-1 ring-slate-300/30",
                             isToday && "ring-1 ring-primary/40"
                           )}
                         >
