@@ -87,13 +87,14 @@ export default function EinstellungenPage() {
     if (!to || to === from) {
       dates.push(from);
     } else {
-      const start = new Date(from + "T00:00:00");
-      const end = new Date(to + "T00:00:00");
+      // UTC-anchored to be immune to local timezone shifts
+      const start = new Date(from + "T12:00:00Z");
+      const end = new Date(to + "T12:00:00Z");
       const [a, b] = start <= end ? [start, end] : [end, start];
       const cur = new Date(a);
       while (cur <= b) {
         dates.push(cur.toISOString().slice(0, 10));
-        cur.setDate(cur.getDate() + 1);
+        cur.setUTCDate(cur.getUTCDate() + 1);
       }
     }
     const next = Array.from(new Set([...arr, ...dates])).sort();
@@ -587,8 +588,8 @@ function groupConsecutive(dates: string[]): { start: string; end: string }[] {
   let curStart = sorted[0];
   let curEnd = sorted[0];
   for (let i = 1; i < sorted.length; i++) {
-    const prev = new Date(curEnd + "T00:00:00");
-    prev.setDate(prev.getDate() + 1);
+    const prev = new Date(curEnd + "T12:00:00Z");
+    prev.setUTCDate(prev.getUTCDate() + 1);
     if (prev.toISOString().slice(0, 10) === sorted[i]) {
       curEnd = sorted[i];
     } else {
@@ -603,11 +604,11 @@ function groupConsecutive(dates: string[]): { start: string; end: string }[] {
 
 function expandRange(g: { start: string; end: string }): string[] {
   const out: string[] = [];
-  const cur = new Date(g.start + "T00:00:00");
-  const end = new Date(g.end + "T00:00:00");
+  const cur = new Date(g.start + "T12:00:00Z");
+  const end = new Date(g.end + "T12:00:00Z");
   while (cur <= end) {
     out.push(cur.toISOString().slice(0, 10));
-    cur.setDate(cur.getDate() + 1);
+    cur.setUTCDate(cur.getUTCDate() + 1);
   }
   return out;
 }
